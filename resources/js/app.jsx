@@ -30,3 +30,4 @@ export default function App() {
 }
 
 ReactDOM.createRoot(document.getElementById("app")).render(<App />);
+console.log("React App Mounted!");

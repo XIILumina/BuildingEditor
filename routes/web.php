@@ -1,7 +1,14 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
 
-Route::view('/', 'welcome');
-Route::view('/dashboard', 'welcome'); // Replace 'welcome' with your dashboard view if exists
-Route::view('/editor/{projectId}', 'welcome'); // Replace 'welcome' with your editor view if exists
+Route::get('/', function () {
+    return view('welcome');
+});
+
+Route::view('/{any}', 'app')->where('any', '.*');
+
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/logout', [AuthController::class, 'logout']);
