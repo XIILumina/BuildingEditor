@@ -1,15 +1,13 @@
+import React, { useState } from 'react';
 import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
 import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
 import { Link, usePage } from '@inertiajs/react';
-import { useState } from 'react';
 
 export default function AuthenticatedLayout({ header, children }) {
     const user = usePage().props.auth.user;
-
-    const [showingNavigationDropdown, setShowingNavigationDropdown] =
-        useState(false);
+    const [showingNavigationDropdown, setShowingNavigationDropdown] = useState(false);
 
     return (
         <div className="min-h-screen bg-gray-100">
@@ -30,6 +28,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Dashboard
                                 </NavLink>
+                                <NavLink
+                                    href={route('editor', { id: 1 })} // Changed 'edit' to 'editor' with id=1
+                                    active={route().current('editor')}
+                                >
+                                    Editor
+                                </NavLink>
                             </div>
                         </div>
 
@@ -43,7 +47,6 @@ export default function AuthenticatedLayout({ header, children }) {
                                                 className="inline-flex items-center rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none"
                                             >
                                                 {user.name}
-
                                                 <svg
                                                     className="-me-0.5 ms-2 h-4 w-4"
                                                     xmlns="http://www.w3.org/2000/svg"
@@ -61,9 +64,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                     </Dropdown.Trigger>
 
                                     <Dropdown.Content>
-                                        <Dropdown.Link
-                                            href={route('profile.edit')}
-                                        >
+                                        <Dropdown.Link href={route('profile.edit')}>
                                             Profile
                                         </Dropdown.Link>
                                         <Dropdown.Link
@@ -133,6 +134,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('dashboard')}
                         >
                             Dashboard
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('editor', { id: 1 })} // Added for mobile nav
+                            active={route().current('editor')}
+                        >
+                            Editor
                         </ResponsiveNavLink>
                     </div>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { InertiaLink } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 
 function Properties({ projectId }) {
   return (
@@ -17,9 +17,9 @@ function Properties({ projectId }) {
           <option>Wood</option>
         </select>
       </div>
-      <InertiaLink href="/dashboard" className="bg-blue-500 text-white px-4 py-2 rounded">
+      <Link href="/dashboard" className="bg-blue-500 text-white px-4 py-2 rounded">
         Back to Dashboard
-      </InertiaLink>
+      </Link>
     </div>
   );
 }
