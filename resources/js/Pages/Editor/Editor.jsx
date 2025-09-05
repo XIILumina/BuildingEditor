@@ -1,76 +1,46 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Stage, Layer, Line, Group } from 'react-konva';
 import { Link } from 'react-router-dom';
-import { Link as InertiaLink } from '@inertiajs/react';
+import { Link as InertiaLink, usePage } from '@inertiajs/react';
 import axios from 'axios';
+import Template from './Template';
+import Properties from './Sidepanel/Pages/Properties';
+import Settings from './Sidepanel/Pages/Settings';
 
 function Editor({ projectId }) {
+  const { auth } = usePage().props;
   const [tool, setTool] = useState('select');
   const [lines, setLines] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [showProfilePopup, setShowProfilePopup] = useState(false);
-  const stageRef = useRef(null);
+  const [selectedLineIndex, setSelectedLineIndex] = useState(null);
+  const [sidepanelMode, setSidepanelMode] = useState('default');
+  const [drawColor, setDrawColor] = useState('#ffffff'); // Default white on dark grey
+  const [selectionRect, setSelectionRect] = useState({ x: 0, y: 0, width: 0, height: 0, visible: false });
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedLines, setSelectedLines] = useState([]);
 
   useEffect(() => {
-    axios.get(`/projects/${projectId}`).then(response => {
+    loadProject();
+  }, [projectId]);
+
+  const loadProject = async () => {
+    try {
+      const response = await axios.get(`/projects/${projectId}`);
       if (response.data.project.data?.lines) {
         setLines(response.data.project.data.lines);
       }
-    });
-  }, [projectId]);
-
-  const handleMouseDown = useCallback((e) => {
-    if (tool !== 'freedraw' && tool !== 'wall') return;
-    setIsDrawing(true);
-    const pos = e.target.getStage().getPointerPosition();
-    const snapPos = { x: Math.round(pos.x / 20) * 20, y: Math.round(pos.y / 20) * 20 };
-    setLines([...lines, { points: [snapPos.x, snapPos.y], isWall: tool === 'wall', thickness: 10, material: 'Brick' }]);
-  }, [tool, lines]);
-
-  const handleMouseMove = useCallback((e) => {
-    if (!isDrawing || (tool !== 'freedraw' && tool !== 'wall')) return;
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
-    const snapPoint = { x: Math.round(point.x / 20) * 20, y: Math.round(point.y / 20) * 20 };
-    let lastLine = lines[lines.length - 1];
-    if (tool === 'wall') {
-      const start = { x: lastLine.points[0], y: lastLine.points[1] };
-      const dx = snapPoint.x - start.x;
-      const dy = snapPoint.y - start.y;
-      const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-      const snappedAngle = Math.round(angle / 45) * 45;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const newX = start.x + length * Math.cos(snappedAngle * Math.PI / 180);
-      const newY = start.y + length * Math.sin(snappedAngle * Math.PI / 180);
-      lastLine.points = [start.x, start.y, Math.round(newX / 20) * 20, Math.round(newY / 20) * 20];
-    } else {
-      lastLine.points = lastLine.points.concat([snapPoint.x, snapPoint.y]);
-    }
-    lines.splice(lines.length - 1, 1, lastLine);
-    setLines([...lines]);
-  }, [isDrawing, tool, lines]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDrawing(false);
-  }, []);
-
-  const handleSelect = (e) => {
-    if (tool !== 'select') return;
-    const pos = e.target.getStage().getPointerPosition();
-    const selectedLine = lines.find(line => {
-      const [x1, y1, x2, y2] = line.points;
-      return Math.abs(pos.x - (x1 + x2) / 2) < 10 && Math.abs(pos.y - (y1 + y2) / 2) < 10;
-    });
-    if (selectedLine) {
-      alert(`Selected line with thickness: ${selectedLine.thickness}, material: ${selectedLine.material}`);
+    } catch (error) {
+      console.error('Error loading project:', error);
     }
   };
 
   const saveProject = async () => {
+    if (!auth.user) {
+      alert('Guests cannot save projects. Please log in.');
+      return;
+    }
     try {
       await axios.put(`/projects/${projectId}`, { data: { lines } });
       alert('Project saved!');
@@ -79,72 +49,121 @@ function Editor({ projectId }) {
     }
   };
 
-  const loadProject = async () => {
-    try {
-      const response = await axios.get(`/projects/${projectId}`);
-      if (response.data.project.data?.lines) {
-        setLines(response.data.project.data.lines);
-        alert('Project loaded!');
-      }
-    } catch (error) {
-      console.error('Error loading project:', error);
-    }
-  };
-
   const calculateWeight = () => {
     const weights = { Brick: 1800, Concrete: 2400, Wood: 600 }; // kg/m³
     const totalWeight = lines.reduce((sum, line) => {
       if (!line.isWall) return sum;
-      const [x1, y1, x2, y2] = line.points;
-      const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) / 100; // Convert to meters
-      const volume = length * (line.thickness / 100) * 1; // Assume 1m height
+      const length = line.length || 0;
+      const width = line.width || 0;
+      const height = line.height || 1; // Default height 1m
+      const volume = length * width * height;
       return sum + volume * (weights[line.material] || 1800);
     }, 0);
     alert(`Total weight: ${totalWeight.toFixed(2)} kg`);
   };
 
-  const handleWheel = useCallback((e) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    const oldScale = scale;
-    const pointer = stage.getPointerPosition();
+  const updateLineProperty = (property, value) => {
+    if (selectedLineIndex === null) return;
+    const updatedLines = [...lines];
+    updatedLines[selectedLineIndex][property] = value;
+    setLines(updatedLines);
+  };
 
-    const mousePointTo = {
-      x: (pointer.x - position.x) / oldScale,
-      y: (pointer.y - position.y) / oldScale,
-    };
-
-    let direction = e.evt.deltaY > 0 ? -1 : 1;
-    const newScale = direction > 0 ? oldScale * 1.05 : oldScale / 1.05;
-
-    setScale(newScale);
-
-    const newPosition = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
-    setPosition(newPosition);
-  }, [scale, position]);
-
-  const handleDragStart = useCallback((e) => {
-    setIsDragging(true);
+  const handleMouseDown = (e) => {
     const pos = e.target.getStage().getPointerPosition();
-    setDragStart({ x: pos.x - position.x, y: pos.y - position.y });
-  }, [position]);
+    if (e.evt.button === 2) { // Right click pan
+      setIsDragging(true);
+      setDragStart({ x: pos.x - position.x, y: pos.y - position.y });
+      return;
+    }
 
-  const handleDragMove = useCallback((e) => {
-    if (!isDrawing) return;
+    if (tool === 'select') {
+      setIsSelecting(true);
+      setSelectionRect({ x: pos.x, y: pos.y, width: 0, height: 0, visible: true });
+      return;
+    }
+
+    if (tool !== 'freedraw' && tool !== 'wall') return;
+    setIsDrawing(true);
+    const snapPos = { x: Math.round(pos.x / 20) * 20, y: Math.round(pos.y / 20) * 20 };
+    setLines([...lines, { points: [snapPos.x, snapPos.y], isWall: tool === 'wall', thickness: 10, material: 'Brick', color: drawColor }]);
+  };
+
+  const handleMouseMove = (e) => {
     const pos = e.target.getStage().getPointerPosition();
-    setPosition({ x: pos.x - dragStart.x, y: pos.y - dragStart.y });
-  }, [dragStart]);
+    if (isDragging) {
+      setPosition({ x: pos.x - dragStart.x, y: pos.y - dragStart.y });
+      return;
+    }
 
-  const handleDragEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+    if (isSelecting && tool === 'select') {
+      setSelectionRect({
+        x: selectionRect.x,
+        y: selectionRect.y,
+        width: pos.x - selectionRect.x,
+        height: pos.y - selectionRect.y,
+        visible: true
+      });
+      return;
+    }
+
+    if (!isDrawing || (tool !== 'freedraw' && tool !== 'wall')) return;
+    const point = e.target.getStage().getPointerPosition();
+    let lastLine = lines[lines.length - 1];
+    if (tool === 'wall') {
+      const start = { x: lastLine.points[0], y: lastLine.points[1] };
+      lastLine.points = [start.x, start.y, point.x, point.y];
+    } else {
+      lastLine.points = lastLine.points.concat([point.x, point.y]);
+    }
+    lines.splice(lines.length - 1, 1, lastLine);
+    setLines([...lines]);
+  };
+
+  const handleMouseUp = (e) => {
+    if (isDragging) {
+      setIsDragging(false);
+      return;
+    }
+
+    if (isSelecting && tool === 'select') {
+      setIsSelecting(false);
+      setSelectionRect({ ...selectionRect, visible: false });
+      const selected = lines.reduce((acc, line, index) => {
+        const [x1, y1, x2, y2] = line.points;
+        const minX = Math.min(selectionRect.x, selectionRect.x + selectionRect.width);
+        const maxX = Math.max(selectionRect.x, selectionRect.x + selectionRect.width);
+        const minY = Math.min(selectionRect.y, selectionRect.y + selectionRect.height);
+        const maxY = Math.max(selectionRect.y, selectionRect.y + selectionRect.height);
+        if (x1 > minX && x1 < maxX && y1 > minY && y1 < maxY) {
+          acc.push(index);
+        }
+        return acc;
+      }, []);
+      setSelectedLines(selected);
+      if (selected.length > 0) {
+        setSidepanelMode('properties'); // Switch to properties for selected lines
+      }
+      return;
+    }
+
+    setIsDrawing(false);
+  };
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
-      {/* Top Navbar - Fixed hovering */}
+      <Template
+        tool={tool}
+        lines={lines}
+        setLines={setLines}
+        isDrawing={isDrawing}
+        setIsDrawing={setIsDrawing}
+        scale={scale}
+        setScale={setScale}
+        position={position}
+        setPosition={setPosition}
+      />
+
       <div className="absolute top-0 left-0 right-0 z-50 bg-gray-900 text-white p-4">
         <div className="max-w-7xl mx-auto flex justify-between">
           <div>
@@ -164,90 +183,58 @@ function Editor({ projectId }) {
         </div>
       </div>
 
-      {/* Left Corner Buttons - Fixed hovering */}
-      <div className="absolute bottom-4 left-4 z-50 space-y-2">
-        <button onClick={saveProject} className="bg-green-500 text-white px-4 py-2 rounded">
+      <div className="absolute top-16 left-4 z-50 bg-gray-800 text-white p-4 rounded-lg space-y-2">
+        <h2 className="text-lg font-bold">Tools</h2>
+        <button
+          onClick={() => setTool('select')}
+          className={`block p-2 ${tool === 'select' ? 'bg-blue-500' : 'bg-gray-600'} rounded`}
+        >
+          Select
+        </button>
+        <button
+          onClick={() => setTool('wall')}
+          className={`block p-2 ${tool === 'wall' ? 'bg-blue-500' : 'bg-gray-600'} rounded`}
+        >
+          Draw Wall
+        </button>
+        <button
+          onClick={() => setTool('freedraw')}
+          className={`block p-2 ${tool === 'freedraw' ? 'bg-blue-500' : 'bg-gray-600'} rounded`}
+        >
+          Free Draw
+        </button>
+        <label>Draw Color:</label>
+        <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} />
+        <button onClick={saveProject} className="block p-2 bg-green-500 rounded">
           Save Project
         </button>
-        <button onClick={loadProject} className="bg-blue-500 text-white px-4 py-2 rounded">
-          Load Project
-        </button>
-        <button onClick={calculateWeight} className="bg-purple-500 text-white px-4 py-2 rounded">
+        <button onClick={calculateWeight} className="block p-2 bg-purple-500 rounded">
           Calculate Weight
         </button>
       </div>
 
-      {/* Template Canvas - Movable and zoomable background */}
-      <div className="absolute inset-0 bg-gray-800">
-        <Stage
-          ref={stageRef}
-          width={window.innerWidth}
-          height={window.innerHeight}
-          onWheel={handleWheel}
-          onMouseDown={handleDragStart}
-          onMouseMove={handleDragMove}
-          onMouseUp={handleDragEnd}
-          onTouchStart={handleDragStart}
-          onTouchMove={handleDragMove}
-          onTouchEnd={handleDragEnd}
-          scaleX={scale}
-          scaleY={scale}
-          x={position.x}
-          y={position.y}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onClick={handleSelect}
-        >
-          <Layer>
-            {[...Array(50)].map((_, i) => (
-              <Line
-                key={`grid-h-${i}`}
-                points={[0, i * 20, window.innerWidth, i * 20]}
-                stroke="#ddd"
-                strokeWidth={1}
-              />
-            ))}
-            {[...Array(50)].map((_, i) => (
-              <Line
-                key={`grid-v-${i}`}
-                points={[i * 20, 0, i * 20, window.innerHeight]}
-                stroke="#ddd"
-                strokeWidth={1}
-              />
-            ))}
-          </Layer>
-          <Layer>
-            {lines.map((line, i) => (
-              <Line
-                key={i}
-                points={line.points}
-                stroke={line.isWall ? '#000' : '#999'}
-                strokeWidth={line.isWall ? line.thickness : 5}
-                tension={line.isWall ? 0 : 0.5}
-                lineCap="round"
-                globalCompositeOperation="source-over"
-              />
-            ))}
-          </Layer>
-        </Stage>
-      </div>
-
-      {/* Right Sidepanel - Fixed hovering */}
-      <div className="absolute top-0 right-0 bottom-0 w-64 bg-gray-100 p-4 z-50">
+      <div className="inline-block absolute top-0 right-0 bottom-0 w-80 bg-gray-100 p-4 z-50">
         <h2 className="text-lg font-bold">Sidepanel</h2>
-        <Link
-          to={`/editor/${projectId}/properties`}
-          className={`block p-2 ${window.location.pathname.includes('properties') ? 'bg-blue-200' : 'bg-gray-200'} rounded mb-2`}
-        >
+        <button onClick={() => setSidepanelMode('style')} className="inline block p-2 bg-gray-200 rounded mx-1 mb-2">
+          style
+        </button>
+        <button onClick={() => setSidepanelMode('properties')} className="inline block p-2 bg-gray-200 rounded mx-1 mb-2">
           Properties
-        </Link>
-        <Link
-          to={`/editor/${projectId}/settings`}
-          className={`block p-2 ${window.location.pathname.includes('settings') ? 'bg-blue-200' : 'bg-gray-200'} rounded`}
-        >
+        </button>
+        <button onClick={() => setSidepanelMode('settings')} className="inline block p-2 bg-gray-200 rounded mx-1 mb-2">
           Settings
-        </Link>
+        </button>
+
+        {sidepanelMode === 'style' && (
+          <Style projectId={projectId} />
+        )}
+        {sidepanelMode === 'properties' && (
+          <Properties projectId={projectId} />
+        )}
+
+        {sidepanelMode === 'settings' && (
+          <Settings projectId={projectId} />
+        )}
       </div>
     </div>
   );

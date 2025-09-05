@@ -5,13 +5,19 @@ function Sidepanel({ projectId }) {
   const location = useLocation();
 
   return (
-    <div className="w-64 bg-gray-100 p-4">
+    <div className="w-64 bg-gray-100 p-4 border-r h-full">
       <h2 className="text-lg font-bold">Sidepanel</h2>
-      <Link
+            <Link
         to={`/editor/${projectId}/properties`}
         className={`block p-2 ${location.pathname.includes('properties') ? 'bg-blue-200' : 'bg-gray-200'} rounded mb-2`}
       >
         Properties
+      </Link>
+      <Link
+        to={`/editor/${projectId}/style`}
+        className={`block p-2 ${location.pathname.includes('style') ? 'bg-blue-200' : 'bg-gray-200'} rounded mb-2`}
+      >
+        Style
       </Link>
       <Link
         to={`/editor/${projectId}/settings`}

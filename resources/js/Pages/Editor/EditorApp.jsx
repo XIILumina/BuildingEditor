@@ -6,11 +6,11 @@ import Settings from './Sidepanel/Pages/Settings';
 
 function EditorApp({ projectId }) {
   return (
-    <BrowserRouter basename={`/editor/${projectId}`}>
+    <BrowserRouter> {/* Removed basename to prevent duplication */}
       <Routes>
-        <Route path="/" element={<Editor projectId={projectId} />} />
-        <Route path="/properties" element={<Properties projectId={projectId} />} />
-        <Route path="/settings" element={<Settings projectId={projectId} />} />
+        <Route path="/editor/:id" element={<Editor projectId={projectId} />} />
+        <Route path="/editor/:id/properties" element={<Properties projectId={projectId} />} />
+        <Route path="/editor/:id/settings" element={<Settings projectId={projectId} />} />
       </Routes>
     </BrowserRouter>
   );

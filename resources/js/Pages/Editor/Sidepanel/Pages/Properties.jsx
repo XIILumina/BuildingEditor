@@ -25,3 +25,39 @@ function Properties({ projectId }) {
 }
 
 export default Properties;
+
+{/* <div>
+            <h3 className="text-lg font-bold">Properties</h3>
+            {selectedLineIndex !== null ? (
+              <div>
+                <label>Thickness:</label>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  value={lines[selectedLineIndex].thickness}
+                  onChange={(e) => updateLineProperty('thickness', parseInt(e.target.value))}
+                />
+                <label>Length:</label>
+                <input
+                  type="number"
+                  value={lines[selectedLineIndex].length || 0}
+                  onChange={(e) => updateLineProperty('length', parseFloat(e.target.value))}
+                />
+                <label>Width:</label>
+                <input
+                  type="number"
+                  value={lines[selectedLineIndex].width || 0}
+                  onChange={(e) => updateLineProperty('width', parseFloat(e.target.value))}
+                />
+                <label>Height:</label>
+                <input
+                  type="number"
+                  value={lines[selectedLineIndex].height || 1}
+                  onChange={(e) => updateLineProperty('height', parseFloat(e.target.value))}
+                />
+              </div>
+            ) : (
+              <p>Select an object to edit properties</p>
+            )}
+          </div> */}
