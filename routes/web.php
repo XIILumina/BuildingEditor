@@ -21,20 +21,19 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
-    Route::get('/profile', [ProfileController::class, 'ed
-    it'])->name('profile.edit');
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // Editor route (renders EditorApp.jsx with BrowserRouter for nested UI)
+    // Editor route
     Route::get('/editor/{id}', fn($id) => Inertia::render('Editor/EditorApp', ['projectId' => $id]))->name('editor');
     Route::get('/edit', [EditController::class, 'index'])->name('edit.index');
 
-    // Project routes (use Inertia to render JSON-saved projects)
-    Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index'); // List projects (Inertia render)
-    Route::get('/projects/{id}', [ProjectController::class, 'show'])->name('projects.show'); // View project (Inertia render)
-    Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store'); // Create project (JSON data)
-    Route::put('/projects/{id}', [ProjectController::class, 'update'])->name('projects.update'); // Update project (JSON data)
+    // Project routes (return JSON)
+    Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
+    Route::get('/projects/{id}', [ProjectController::class, 'show'])->name('projects.show');
+    Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
+    Route::put('/projects/{id}', [ProjectController::class, 'update'])->name('projects.update');
 });
 
 require __DIR__.'/auth.php';

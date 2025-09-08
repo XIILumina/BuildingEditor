@@ -1,63 +1,29 @@
 import React from 'react';
-import { Link } from '@inertiajs/react';
 
-function Properties({ projectId }) {
+export default function Properties({ thickness, setThickness, material, setMaterial, drawColor, setDrawColor }) {
   return (
-    <div className="p-4">
-      <h2 className="text-2xl font-bold mb-4">Properties for Project {projectId}</h2>
-      <div className="mb-4">
-        <label className="block mb-1">Wall Thickness</label>
-        <input type="number" className="w-full p-2 border rounded" placeholder="Enter thickness (cm)" />
+    <div className="p-2">
+      <h2 className="text-xl font-semibold mb-3">Properties</h2>
+
+      <div className="mb-3">
+        <label className="block text-sm mb-1">Thickness (cm)</label>
+        <input type="range" min="1" max="60" value={thickness || 6} onChange={(e) => setThickness(parseInt(e.target.value, 10))} />
+        <div className="text-xs opacity-80 mt-1">{thickness} cm</div>
       </div>
-      <div className="mb-4">
-        <label className="block mb-1">Material</label>
-        <select className="w-full p-2 border rounded">
+
+      <div className="mb-3">
+        <label className="block text-sm mb-1">Material</label>
+        <select value={material} onChange={(e) => setMaterial(e.target.value)} className="w-full p-2 rounded bg-[#071826]">
           <option>Brick</option>
           <option>Concrete</option>
           <option>Wood</option>
         </select>
       </div>
-      <Link href="/dashboard" className="bg-blue-500 text-white px-4 py-2 rounded">
-        Back to Dashboard
-      </Link>
+
+      <div className="mb-3">
+        <label className="block text-sm mb-1">Draw color</label>
+        <input type="color" value={drawColor || '#ffffff'} onChange={(e) => setDrawColor(e.target.value)} />
+      </div>
     </div>
   );
 }
-
-export default Properties;
-
-{/* <div>
-            <h3 className="text-lg font-bold">Properties</h3>
-            {selectedLineIndex !== null ? (
-              <div>
-                <label>Thickness:</label>
-                <input
-                  type="range"
-                  min="1"
-                  max="50"
-                  value={lines[selectedLineIndex].thickness}
-                  onChange={(e) => updateLineProperty('thickness', parseInt(e.target.value))}
-                />
-                <label>Length:</label>
-                <input
-                  type="number"
-                  value={lines[selectedLineIndex].length || 0}
-                  onChange={(e) => updateLineProperty('length', parseFloat(e.target.value))}
-                />
-                <label>Width:</label>
-                <input
-                  type="number"
-                  value={lines[selectedLineIndex].width || 0}
-                  onChange={(e) => updateLineProperty('width', parseFloat(e.target.value))}
-                />
-                <label>Height:</label>
-                <input
-                  type="number"
-                  value={lines[selectedLineIndex].height || 1}
-                  onChange={(e) => updateLineProperty('height', parseFloat(e.target.value))}
-                />
-              </div>
-            ) : (
-              <p>Select an object to edit properties</p>
-            )}
-          </div> */}

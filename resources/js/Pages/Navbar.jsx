@@ -1,21 +1,31 @@
-export default function Navbar({ auth }) {
+import { Link, Inertia } from '@inertiajs/react';
+
+function Navbar({ auth }) {
   return (
-    <nav className="bg-gray-800 p-4 text-white flex justify-between">   
-        <div className="text-lg font-bold">CAD Project</div>
-        <div>
-            {auth.user ? (
-                <div className="flex items-center space-x-4">
-                    <span>Welcome, {auth.user.name}</span>
-                    <a href="/logout" className="bg-red-500 px-3 py-1 rounded">Logout</a>
-                </div>
-            ) : (
-                <div className="space-x-4">
-                    <a href="/login" className="bg-blue-500 px-3 py-1 rounded">Login</a>
-                    <a href="/register" className="bg-green-500 px-3 py-1 rounded">Register</a>
-                    {/* <a href="/projects" className="bg-gray-700 px-3 py-1 rounded">Projects</a> */}
-                </div>
-            )}
-        </div>
+    <nav className="flex items-center justify-between bg-gray-900 text-white p-4">
+      <Link href="/dashboard" className="font-bold text-xl">Blueprint App</Link>
+
+      <div className="space-x-4">
+        {auth?.user ? (
+          <>
+            <Link href="/dashboard" className="hover:text-blue-300">Dashboard</Link>
+            <Link href="/profile" className="hover:text-blue-300">Profile</Link>
+            <button
+              onClick={() => Inertia.post('/logout')}
+              className="bg-red-600 px-3 py-1 rounded hover:bg-red-700"
+            >
+              Logout
+            </button>
+          </>
+        ) : (
+          <>
+            <Link href="/login" className="hover:text-blue-300">Login</Link>
+            <Link href="/register" className="hover:text-blue-300">Register</Link>
+          </>
+        )}
+      </div>
     </nav>
   );
-}   
+}
+
+export default Navbar;

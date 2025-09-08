@@ -4,16 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Project;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 
 class ProjectController extends Controller
 {
     public function index()
     {
         if (!auth()->check()) {
-            return Inertia::render('Projects/Index', ['projects' => []]);
+            return response()->json(['projects' => []]);
         }
-        return Inertia::render('Projects/Index', [
+
+        return response()->json([
             'projects' => auth()->user()->projects()->get(),
         ]);
     }
@@ -23,15 +23,17 @@ class ProjectController extends Controller
         if (!auth()->check()) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
+
         $project = Project::where('id', $id)->where('user_id', auth()->id())->first();
+
         if (!$project) {
-            // Create a new project if it doesn't exist
             $project = Project::create([
                 'user_id' => auth()->id(),
                 'name' => 'New Project ' . $id,
                 'data' => ['lines' => []],
             ]);
         }
+
         return response()->json(['project' => $project]);
     }
 
@@ -40,11 +42,13 @@ class ProjectController extends Controller
         if (!auth()->check()) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
+
         $project = Project::create([
             'user_id' => auth()->id(),
             'name' => $request->input('name', 'New Project'),
             'data' => $request->input('data', ['lines' => []]),
         ]);
+
         return response()->json($project);
     }
 
@@ -53,7 +57,9 @@ class ProjectController extends Controller
         if (!auth()->check()) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
+
         $project = Project::where('id', $id)->where('user_id', auth()->id())->first();
+
         if (!$project) {
             $project = Project::create([
                 'user_id' => auth()->id(),
@@ -65,6 +71,7 @@ class ProjectController extends Controller
                 'data' => $request->input('data'),
             ]);
         }
+
         return response()->json($project);
     }
 }

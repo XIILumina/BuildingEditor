@@ -1,9 +1,10 @@
-export default function Style({ projectId }) {
+import React from 'react';
+
+export default function Style() {
   return (
-    <div className="p-4">
-      <h2 className="text-lg font-bold mb-4">Style Settings</h2>
-      <p>Here you can adjust the style settings for your project.</p>
-      {/* Add more style-related settings and controls here */}
+    <div className="p-2">
+      <h2 className="text-xl font-semibold mb-3">Style</h2>
+      <p className="text-sm opacity-80">UI theme and visual tweaks go here. For now keep it minimal.</p>
     </div>
   );
 }
