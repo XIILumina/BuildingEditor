@@ -24,7 +24,9 @@ class ProjectController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $project = Project::where('id', $id)->where('user_id', auth()->id())->first();
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->first();
 
         if (!$project) {
             $project = Project::create([
@@ -37,70 +39,62 @@ class ProjectController extends Controller
         return response()->json(['project' => $project]);
     }
 
+    public function store(Request $request)
+    {
+        // ✅ FIX: use $request->validate, not $this->validate
+        $request->validate([
+            'name' => 'nullable|string|max:255',
+        ]);
+
+        $project = Project::create([
+            'user_id' => auth()->id(),
+            'name' => $request->input('name', 'New Project'),
+            'data' => $request->input('data', ['lines' => []]),
+        ]);
+
+        return response()->json([
+            'id' => $project->id,
+            'project' => $project,
+        ]);
+    }
+
     public function save(Request $request, $id)
-{
-    $project = Project::where('id', $id)
-        ->where('user_id', auth()->id())
-        ->firstOrFail();
+    {
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
 
-    $project->update([
-        'data' => $request->input('data', []),
-    ]);
+        $project->update([
+            'data' => $request->input('data', []),
+        ]);
 
-    return response()->json([
-        'success' => true,
-        'project' => $project,
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'project' => $project,
+        ]);
+    }
 
-public function destroy($id)
-{
-    $project = Project::where('id', $id)
-        ->where('user_id', auth()->id())
-        ->firstOrFail();
+    public function update(Request $request, $id)
+    {
+        $project = Project::findOrFail($id);
 
-    $project->delete();
+        $project->data = [
+            'lines' => $request->input('lines', []),
+        ];
 
-    return response()->json(['success' => true]);
-}
+        $project->save();
 
-public function store(Request $request)
-{
-    $this->validate($request, [
-        'name' => 'nullable|string|max:255',
-    ]);
+        return response()->json(['success' => true]);
+    }
 
-    $project = Project::create([
-        'user_id' => auth()->id(),
-        'name' => $request->input('name', 'New Project'),
-        'data' => $request->input('data', ['lines' => []]),
-    ]);
+    public function destroy($id)
+    {
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
 
-    return response()->json([
-        'id' => $project->id,
-        'project' => $project,
-    ]);
-}
+        $project->delete();
 
-public function create() {
-    $project = Project::create([
-        'user_id' => auth()->id(),
-        'name' => 'Untitled Project',
-        'data' => ['lines' => []],
-    ]);
-        return response()->json(['id' => $project->id]);
-}
-
-   public function update(Request $request, $id)
-{
-    $project = Project::findOrFail($id);
-
-    $project->data = json_encode([
-        'lines' => $request->input('lines', []),
-    ]);
-
-    $project->save();
-
-    return response()->json(['success' => true]);
-}
+        return response()->json(['success' => true]);
+    }
 }

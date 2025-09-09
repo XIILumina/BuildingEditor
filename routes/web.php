@@ -34,9 +34,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/projects/{id}', [ProjectController::class, 'show'])->name('projects.show');
     Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
     Route::post('/projects/{id}/save', [ProjectController::class, 'save']);
-Route::delete('/projects/{id}', [ProjectController::class, 'destroy']);
+    Route::delete('/projects/{id}', [ProjectController::class, 'destroy']);
     Route::put('/projects/{id}', [ProjectController::class, 'update'])->name('projects.update');
-    Route::post('/projects/create', [ProjectController::class, 'store'])->name('projects.create');
+
 });
 
 require __DIR__.'/auth.php';

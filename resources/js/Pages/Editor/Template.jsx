@@ -4,6 +4,7 @@ import { Stage, Layer, Line, Rect, Transformer } from "react-konva";
 export default function Template({
   tool,
   lines,
+  material,
   setLines,
   drawColor,
   thickness,
@@ -22,29 +23,38 @@ export default function Template({
   const [scale, setScale] = useState(1);
 
   // DRAWING LOGIC
-  const handleMouseDown = useCallback((e) => {
-    if (tool === "freedraw" || tool === "wall") {
-      setIsDrawing(true);
-        const stage = e.target.getStage();
-        const pointer = stage.getPointerPosition();
-        const transform = stage.getAbsoluteTransform().copy();
-        transform.invert();
-        const pos = transform.point(pointer);
+  const handleMouseDown = (e) => {
+  const stage = e.target.getStage();
+  const pointer = stage.getPointerPosition();
+  if (!pointer) return;
 
-        const newLine = {
-          id: Date.now(),
-          points: [pos.x, pos.y], // correct stage coords
-          color: drawColor,
-          thickness,
-          isWall: tool === "wall",
-          material: "Brick",
-        };
-        setLines([...lines, newLine]);
+  // Always transform pointer to stage space
+  const transform = stage.getAbsoluteTransform().copy();
+  transform.invert();
+  const pos = transform.point(pointer);
 
-    } else if (tool === "select") {
-      setSelection({ x: pos.x, y: pos.y, w: 0, h: 0 });
+  if (tool === "select") {
+    const shape = e.target;
+    if (shape && shape.getAttr("id")) {
+      setSelectedId(shape.getAttr("id"));
+    } else {
+      setSelectedId(null);
     }
-  }, [tool, lines, drawColor, thickness, setLines]);
+  }
+
+  if (tool === "freedraw" || tool === "wall") {
+    const newLine = {
+      id: Date.now(),
+      points: [pos.x, pos.y],
+      color: drawColor,
+      thickness,
+      isWall: tool === "wall",
+      material: material || "Brick",
+    };
+    setLines([...lines, newLine]);
+    setIsDrawing(true);
+  }
+};
 
   const handleMouseMove = useCallback((e) => {
     const stage = e.target.getStage();
