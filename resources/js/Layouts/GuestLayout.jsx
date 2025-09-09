@@ -3,16 +3,20 @@ import { Link } from '@inertiajs/react';
 
 export default function GuestLayout({ children }) {
     return (
-        <div className="flex min-h-screen flex-col items-center bg-gray-100 pt-6 sm:justify-center sm:pt-0">
-            <div>
+        <div className="min-h-screen flex flex-col justify-center items-center bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+            <div className="mb-8">
                 <Link href="/">
-                    <ApplicationLogo className="h-20 w-20 fill-current text-gray-500" />
+                    <ApplicationLogo className="h-16 w-16 text-indigo-600 dark:text-indigo-400" />
                 </Link>
             </div>
 
-            <div className="mt-6 w-full overflow-hidden bg-white px-6 py-4 shadow-md sm:max-w-md sm:rounded-lg">
+            <div className="w-full max-w-md bg-white dark:bg-gray-800 shadow-xl rounded-xl p-8">
                 {children}
             </div>
+
+            <footer className="mt-6 text-sm text-gray-500 dark:text-gray-400">
+                © {new Date().getFullYear()} – Built with Laravel & Inertia
+            </footer>
         </div>
     );
 }
