@@ -20,8 +20,21 @@ function Editor({ projectId }) {
   const [gridSize, setGridSize] = useState(20);
   const [units, setUnits] = useState("Metric");
 
+  // Selection & history
+  const [selectedId, setSelectedId] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
+  const pushHistory = (newLines) => {
+    setHistory((h) => [...h, lines]);
+    setRedoStack([]);
+    setLines(newLines);
+  };
+
+
+
+
   useEffect(() => {
-    // load project (best-effort)
     axios.get(`/projects/${projectId}`)
       .then((res) => {
         const data = res.data?.project?.data || {};
@@ -32,26 +45,57 @@ function Editor({ projectId }) {
         if (data.thickness) setThickness(data.thickness);
         if (data.material) setMaterial(data.material);
       })
-      .catch(() => {
-        // ignore for now — we'll add robust loading later
-      });
+      .catch(() => {});
   }, [projectId]);
 
+
+
+  
+  useEffect(() => {
+    const handleKeys = (e) => {
+      if (e.key === "Delete" && selectedId) {
+        setLines((prev) => prev.filter((l) => l.id !== selectedId));
+        setSelectedId(null);
+      }
+      if (e.ctrlKey && e.key === "z") {
+        setHistory((h) => {
+          if (h.length === 0) return h;
+          const prev = h[h.length - 1];
+          setRedoStack((r) => [...r, lines]);
+          setLines(prev);
+          return h.slice(0, -1);
+        });
+      }
+      if (e.ctrlKey && e.key === "y") {
+        setRedoStack((r) => {
+          if (r.length === 0) return r;
+          const next = r[r.length - 1];
+          setHistory((h) => [...h, lines]);
+          setLines(next);
+          return r.slice(0, -1);
+        });
+      }
+    };
+    window.addEventListener("keydown", handleKeys);
+    return () => window.removeEventListener("keydown", handleKeys);
+  }, [lines, selectedId]);
+
+
+
+  
   return (
     <div className="relative h-screen w-screen bg-[#071021] text-white overflow-hidden">
-      {/* top navbar (fixed height) */}
+      {/* top navbar */}
       <div className="fixed top-0 left-0 right-0 z-40 h-14 flex items-center justify-between px-4 bg-gradient-to-b from-[#07101b]/95 to-[#071426]/90 border-b border-gray-800">
         <div className="flex items-center space-x-3">
           <FileMenu projectId={projectId} lines={lines} />
           <InertiaLink href="/" className="font-bold text-lg">Blueprint App</InertiaLink>
         </div>
-
         <div className="text-center">
           <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold">
             Editor — Project #{projectId}
           </div>
         </div>
-
         <div className="flex items-center space-x-4">
           <Toolbar
             tool={tool}
@@ -64,29 +108,29 @@ function Editor({ projectId }) {
         </div>
       </div>
 
-      {/* main area below navbar */}
+      {/* main area */}
       <div className="absolute top-14 left-0 right-0 bottom-0 flex">
-        {/* left: canvas */}
+        {/* canvas */}
         <div className="flex-1 relative z-0">
-          {/* Template will fit this container */}
           <Template
             tool={tool}
             lines={lines}
-            setLines={setLines}
+            setLines={pushHistory}
             drawColor={drawColor}
             thickness={thickness}
             gridSize={gridSize}
             units={units}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
           />
         </div>
 
-        {/* right: sidepanel (inline, not absolute) */}
+        {/* sidepanel */}
         <div className="w-80 z-30 border-l border-gray-800">
           <Sidepanel
             sidepanelMode={sidepanelMode}
             setSidepanelMode={setSidepanelMode}
             projectId={projectId}
-            // pass settings setters and state
             thickness={thickness}
             setThickness={setThickness}
             material={material}

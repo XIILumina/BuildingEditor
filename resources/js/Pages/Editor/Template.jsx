@@ -1,168 +1,204 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Stage, Layer, Line } from 'react-konva';
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { Stage, Layer, Line, Rect, Transformer } from "react-konva";
 
 export default function Template({
-  tool = 'select',
-  lines = [],
+  tool,
+  lines,
   setLines,
-  drawColor = '#fff',
-  thickness = 6,
-  gridSize = 20,
-  units = 'Metric'
+  drawColor,
+  thickness,
+  gridSize,
+  units,
+  selectedId,
+  setSelectedId
 }) {
-  const containerRef = useRef(null);
-  const stageRef = useRef(null);
-  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const stageRef = useRef();
+  const trRef = useRef();
+
+  const [stageSize, setStageSize] = useState({ width: 5000, height: 5000 });
   const [isDrawing, setIsDrawing] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
-  const panStart = useRef({ x: 0, y: 0 });
+  const [selection, setSelection] = useState(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
 
-  useEffect(() => {
-    const measure = () => {
-      if (!containerRef.current) return;
-      const r = containerRef.current.getBoundingClientRect();
-      setStageSize({ width: Math.floor(r.width), height: Math.floor(r.height) });
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
-
-  // prevent context menu on stage
-  useEffect(() => {
-    const el = stageRef.current?.container();
-    if (!el) return;
-    const prevent = (ev) => ev.preventDefault();
-    el.addEventListener('contextmenu', prevent);
-    return () => el.removeEventListener('contextmenu', prevent);
-  }, []);
-
+  // DRAWING LOGIC
   const handleMouseDown = useCallback((e) => {
-    const evt = e.evt || {};
-    const pointer = e.target.getStage().getPointerPosition();
-    if (!pointer) return;
-
-    // right or middle = pan
-    if (evt.button === 2 || evt.button === 1) {
-      setIsPanning(true);
-      panStart.current = { x: pointer.x - position.x, y: pointer.y - position.y };
-      return;
-    }
-
-    if (tool === 'freedraw' || tool === 'wall') {
+    if (tool === "freedraw" || tool === "wall") {
       setIsDrawing(true);
-      const snapX = Math.round((pointer.x - position.x) / gridSize) * gridSize;
-      const snapY = Math.round((pointer.y - position.y) / gridSize) * gridSize;
-      setLines(prev => [...prev, { points: [snapX, snapY], isWall: tool === 'wall', thickness, color: drawColor }]);
+        const stage = e.target.getStage();
+        const pointer = stage.getPointerPosition();
+        const transform = stage.getAbsoluteTransform().copy();
+        transform.invert();
+        const pos = transform.point(pointer);
+
+        const newLine = {
+          id: Date.now(),
+          points: [pos.x, pos.y], // correct stage coords
+          color: drawColor,
+          thickness,
+          isWall: tool === "wall",
+          material: "Brick",
+        };
+        setLines([...lines, newLine]);
+
+    } else if (tool === "select") {
+      setSelection({ x: pos.x, y: pos.y, w: 0, h: 0 });
     }
-  }, [tool, position, gridSize, thickness, drawColor, setLines]);
+  }, [tool, lines, drawColor, thickness, setLines]);
 
   const handleMouseMove = useCallback((e) => {
-    const pointer = e.target.getStage().getPointerPosition();
-    if (!pointer) return;
+    const stage = e.target.getStage();
+const pointer = stage.getPointerPosition();
+if (!pointer) return;
 
-    if (isPanning) {
-      setPosition({ x: pointer.x - panStart.current.x, y: pointer.y - panStart.current.y });
-      return;
+const transform = stage.getAbsoluteTransform().copy();
+transform.invert();
+const pos = transform.point(pointer);
+
+if (isDrawing && (tool === "freedraw" || tool === "wall")) {
+  const lastLine = lines[lines.length - 1];
+  if (!lastLine) return;
+  if (tool === "wall") {
+    const [x0, y0] = lastLine.points;
+    lastLine.points = [x0, y0, pos.x, pos.y];
+  } else {
+    lastLine.points = [...lastLine.points, pos.x, pos.y];
+  }
+  setLines([...lines]);
+}
+    // Selection box
+    if (selection && tool === "select") {
+      setSelection({
+        ...selection,
+        w: pointer.x - selection.x,
+        h: pointer.y - selection.y
+      });
     }
+  }, [isDrawing, lines, tool, selection, setLines]);
 
-    if (!isDrawing) return;
-    setLines(prev => {
-      const arr = [...prev];
-      const last = arr[arr.length - 1];
-      if (!last) return arr;
-      if (last.isWall) {
-        const snapX = Math.round((pointer.x - position.x) / gridSize) * gridSize;
-        const snapY = Math.round((pointer.y - position.y) / gridSize) * gridSize;
-        last.points = [last.points[0], last.points[1], snapX, snapY];
-      } else {
-        last.points = last.points.concat([pointer.x - position.x, pointer.y - position.y]);
-      }
-      arr.splice(arr.length - 1, 1, last);
-      return arr;
-    });
-  }, [isDrawing, isPanning, setLines, position, gridSize]);
+const handleMouseUp = useCallback(() => {
+    setIsDrawing(false);
+    if (selection) {
+      // find objects inside selection
+      const x1 = Math.min(selection.x, selection.x + selection.w);
+      const x2 = Math.max(selection.x, selection.x + selection.w);
+      const y1 = Math.min(selection.y, selection.y + selection.h);
+      const y2 = Math.max(selection.y, selection.y + selection.h);
 
-  const handleMouseUp = useCallback(() => {
-    if (isPanning) setIsPanning(false);
-    if (isDrawing) setIsDrawing(false);
-  }, [isDrawing, isPanning]);
+      const selected = lines.find(line => {
+        for (let i = 0; i < line.points.length; i += 2) {
+          const x = line.points[i];
+          const y = line.points[i + 1];
+          if (x >= x1 && x <= x2 && y >= y1 && y <= y2) {
+            return true;
+          }
+        }
+        return false;
+      });
 
-  const handleWheel = useCallback((e) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const oldScale = scale;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    const scaleBy = 1.08;
-    const direction = e.evt.deltaY > 0 ? 1 : -1;
-    const newScale = direction > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-    const clamped = Math.max(0.2, Math.min(4, newScale));
-
-    const mousePointTo = {
-      x: (pointer.x - position.x) / oldScale,
-      y: (pointer.y - position.y) / oldScale,
-    };
-    const newPos = {
-      x: pointer.x - mousePointTo.x * clamped,
-      y: pointer.y - mousePointTo.y * clamped,
-    };
-
-    setScale(clamped);
-    setPosition(newPos);
-  }, [scale, position]);
-
-  const renderGrid = () => {
-    const safeScale = scale || 1;
-    const safePos = position || { x: 0, y: 0 };
-    const visibleMinX = Math.floor((-safePos.x) / safeScale / gridSize) * gridSize - gridSize * 2;
-    const visibleMaxX = Math.ceil((stageSize.width - safePos.x) / safeScale / gridSize) * gridSize + gridSize * 2;
-    const visibleMinY = Math.floor((-safePos.y) / safeScale / gridSize) * gridSize - gridSize * 2;
-    const visibleMaxY = Math.ceil((stageSize.height - safePos.y) / safeScale / gridSize) * gridSize + gridSize * 2;
-
-    const out = [];
-    for (let x = visibleMinX; x <= visibleMaxX; x += gridSize) {
-      out.push(<Line key={`gx-${x}`} points={[x, visibleMinY, x, visibleMaxY]} stroke="#1f2937" strokeWidth={1 / safeScale} />);
+      if (selected) setSelectedId(selected.id);
+      setSelection(null);
     }
-    for (let y = visibleMinY; y <= visibleMaxY; y += gridSize) {
-      out.push(<Line key={`gy-${y}`} points={[visibleMinX, y, visibleMaxX, y]} stroke="#1f2937" strokeWidth={1 / safeScale} />);
+}, [selection, lines, setSelectedId]);
+
+  // GRID GENERATOR
+  const generateGridLines = () => {
+    const visibleMinX = -position.x / scale - gridSize;
+    const visibleMaxX = (window.innerWidth - position.x) / scale + gridSize;
+    const visibleMinY = -position.y / scale - gridSize;
+    const visibleMaxY = (window.innerHeight - position.y) / scale + gridSize;
+
+    const gridLines = [];
+    for (let x = Math.floor(visibleMinX / gridSize) * gridSize; x < visibleMaxX; x += gridSize) {
+      gridLines.push(<Line key={`v-${x}`} points={[x, visibleMinY, x, visibleMaxY]} stroke="#4b4b4b" strokeWidth={1 / scale} />);
     }
-    return out;
+    for (let y = Math.floor(visibleMinY / gridSize) * gridSize; y < visibleMaxY; y += gridSize) {
+      gridLines.push(<Line key={`h-${y}`} points={[visibleMinX, y, visibleMaxX, y]} stroke="#4b4b4b" strokeWidth={1 / scale} />);
+    }
+    return gridLines;
   };
 
+  // PAN & ZOOM
+  const handleWheel = (e) => {
+    e.evt.preventDefault();
+    const scaleBy = 1.05;
+    const stage = stageRef.current;
+    const oldScale = stage.scaleX();
+    const pointer = stage.getPointerPosition();
+    const mousePointTo = {
+      x: (pointer.x - stage.x()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale,
+    };
+    const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
+    setScale(newScale);
+    setPosition({
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale,
+    });
+  };
+
+  const handleDragMove = (e) => {
+    setPosition({ x: e.target.x(), y: e.target.y() });
+  };
+
+  useEffect(() => {
+    if (trRef.current && selectedId) {
+      trRef.current.nodes([stageRef.current.findOne(`#${selectedId}`)]);
+      trRef.current.getLayer().batchDraw();
+    }
+  }, [selectedId, lines]);
+
   return (
-    <div ref={containerRef} className="absolute inset-0">
-      <Stage
-        ref={stageRef}
-        width={stageSize.width}
-        height={stageSize.height}
-        scaleX={scale}
-        scaleY={scale}
-        x={position.x}
-        y={position.y}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
-        style={{ background: 'linear-gradient(180deg,#071026 0%, #081426 100%)', touchAction: 'none' }}
-      >
-        <Layer>{renderGrid()}</Layer>
-        <Layer>
-          {lines.map((ln, i) => (
-            <Line
-              key={i}
-              points={ln.points}
-              stroke={ln.color || '#e6e6e6'}
-              strokeWidth={ln.isWall ? ln.thickness : (ln.thickness || thickness)}
-              tension={ln.isWall ? 0 : 0.3}
-              lineCap="round"
-            />
-          ))}
-        </Layer>
-      </Stage>
-    </div>
+    <Stage
+          width={window.innerWidth - 320}
+      height={window.innerHeight - 56}
+      onMouseMove={handleMouseMove}
+      onWheel={handleWheel}
+      onDragMove={handleDragMove}
+      onMouseUp={handleMouseUp}
+      scaleX={scale}
+      scaleY={scale}
+      x={position.x}
+      y={position.y}
+      ref={stageRef}
+      draggable={false} // disable LMB drag
+      onContextMenu={(e) => e.evt.preventDefault()} // block default RMB menu
+      onMouseDown={(e) => {
+        if (e.evt.button === 2) stageRef.current.startDrag(); // RMB = pan
+        else handleMouseDown(e); // normal LMB draw/select
+      }}
+      style={{ backgroundColor: '#1d1d1d' }}
+    >
+      <Layer>
+        {generateGridLines()}
+      </Layer>
+
+      <Layer>
+        {lines.map(line => (
+          <Line
+            key={line.id}
+            id={line.id.toString()}
+            points={line.points}   // already flat array
+            stroke={line.color}
+            strokeWidth={line.thickness}
+            tension={line.isWall ? 0 : 0.5}
+            lineCap="round"
+            draggable
+            onClick={() => setSelectedId(line.id)}
+          />
+        ))}
+        {selection && (
+          <Rect
+            x={selection.x}
+            y={selection.y}
+            width={selection.w}
+            height={selection.h}
+            stroke="blue"
+            dash={[4, 4]}
+          />
+        )}
+        {selectedId && <Transformer ref={trRef} />}
+      </Layer>
+    </Stage>
   );
 }

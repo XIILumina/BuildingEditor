@@ -37,41 +37,70 @@ class ProjectController extends Controller
         return response()->json(['project' => $project]);
     }
 
-    public function store(Request $request)
-    {
-        if (!auth()->check()) {
-            return response()->json(['error' => 'Unauthorized'], 401);
-        }
+    public function save(Request $request, $id)
+{
+    $project = Project::where('id', $id)
+        ->where('user_id', auth()->id())
+        ->firstOrFail();
 
-        $project = Project::create([
-            'user_id' => auth()->id(),
-            'name' => $request->input('name', 'New Project'),
-            'data' => $request->input('data', ['lines' => []]),
-        ]);
+    $project->update([
+        'data' => $request->input('data', []),
+    ]);
 
-        return response()->json($project);
-    }
+    return response()->json([
+        'success' => true,
+        'project' => $project,
+    ]);
+}
 
-    public function update(Request $request, $id)
-    {
-        if (!auth()->check()) {
-            return response()->json(['error' => 'Unauthorized'], 401);
-        }
+public function destroy($id)
+{
+    $project = Project::where('id', $id)
+        ->where('user_id', auth()->id())
+        ->firstOrFail();
 
-        $project = Project::where('id', $id)->where('user_id', auth()->id())->first();
+    $project->delete();
 
-        if (!$project) {
-            $project = Project::create([
-                'user_id' => auth()->id(),
-                'name' => 'New Project ' . $id,
-                'data' => $request->input('data', ['lines' => []]),
-            ]);
-        } else {
-            $project->update([
-                'data' => $request->input('data'),
-            ]);
-        }
+    return response()->json(['success' => true]);
+}
 
-        return response()->json($project);
-    }
+public function store(Request $request)
+{
+    $this->validate($request, [
+        'name' => 'nullable|string|max:255',
+    ]);
+
+    $project = Project::create([
+        'user_id' => auth()->id(),
+        'name' => $request->input('name', 'New Project'),
+        'data' => $request->input('data', ['lines' => []]),
+    ]);
+
+    return response()->json([
+        'id' => $project->id,
+        'project' => $project,
+    ]);
+}
+
+public function create() {
+    $project = Project::create([
+        'user_id' => auth()->id(),
+        'name' => 'Untitled Project',
+        'data' => ['lines' => []],
+    ]);
+        return response()->json(['id' => $project->id]);
+}
+
+   public function update(Request $request, $id)
+{
+    $project = Project::findOrFail($id);
+
+    $project->data = json_encode([
+        'lines' => $request->input('lines', []),
+    ]);
+
+    $project->save();
+
+    return response()->json(['success' => true]);
+}
 }
