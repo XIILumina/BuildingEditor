@@ -1,214 +1,272 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Transformer } from "react-konva";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
 
+// Main drawing canvas
 export default function Template({
-  tool,
-  lines,
-  material,
+  tool = "select",
+  lines = [],
   setLines,
-  drawColor,
-  thickness,
-  gridSize,
-  units,
-  selectedId,
-  setSelectedId
+  drawColor = "#ffffff",
+  thickness = 6,
+  gridSize = 20,
+  material = "Brick",
+  selectedId = null,
+  setSelectedId = () => {}
 }) {
-  const stageRef = useRef();
-  const trRef = useRef();
+  const stageRef = useRef(null);
+  const transformerRef = useRef(null);
 
-  const [stageSize, setStageSize] = useState({ width: 5000, height: 5000 });
   const [isDrawing, setIsDrawing] = useState(false);
-  const [selection, setSelection] = useState(null);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [scale, setScale] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
+  const [selectionBox, setSelectionBox] = useState(null);
+  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
 
-  // DRAWING LOGIC
-  const handleMouseDown = (e) => {
-  const stage = e.target.getStage();
-  const pointer = stage.getPointerPosition();
-  if (!pointer) return;
+  // -----------------------
+  // Helpers
+  // -----------------------
 
-  // Always transform pointer to stage space
-  const transform = stage.getAbsoluteTransform().copy();
-  transform.invert();
-  const pos = transform.point(pointer);
-
-  if (tool === "select") {
-    const shape = e.target;
-    if (shape && shape.getAttr("id")) {
-      setSelectedId(shape.getAttr("id"));
-    } else {
-      setSelectedId(null);
-    }
-  }
-
-  if (tool === "freedraw" || tool === "wall") {
-    const newLine = {
-      id: Date.now(),
-      points: [pos.x, pos.y],
-      color: drawColor,
-      thickness,
-      isWall: tool === "wall",
-      material: material || "Brick",
-    };
-    setLines([...lines, newLine]);
-    setIsDrawing(true);
-  }
-};
-
-  const handleMouseMove = useCallback((e) => {
-    const stage = e.target.getStage();
-const pointer = stage.getPointerPosition();
-if (!pointer) return;
-
-const transform = stage.getAbsoluteTransform().copy();
-transform.invert();
-const pos = transform.point(pointer);
-
-if (isDrawing && (tool === "freedraw" || tool === "wall")) {
-  const lastLine = lines[lines.length - 1];
-  if (!lastLine) return;
-  if (tool === "wall") {
-    const [x0, y0] = lastLine.points;
-    lastLine.points = [x0, y0, pos.x, pos.y];
-  } else {
-    lastLine.points = [...lastLine.points, pos.x, pos.y];
-  }
-  setLines([...lines]);
-}
-    // Selection box
-    if (selection && tool === "select") {
-      setSelection({
-        ...selection,
-        w: pointer.x - selection.x,
-        h: pointer.y - selection.y
-      });
-    }
-  }, [isDrawing, lines, tool, selection, setLines]);
-
-const handleMouseUp = useCallback(() => {
-    setIsDrawing(false);
-    if (selection) {
-      // find objects inside selection
-      const x1 = Math.min(selection.x, selection.x + selection.w);
-      const x2 = Math.max(selection.x, selection.x + selection.w);
-      const y1 = Math.min(selection.y, selection.y + selection.h);
-      const y2 = Math.max(selection.y, selection.y + selection.h);
-
-      const selected = lines.find(line => {
-        for (let i = 0; i < line.points.length; i += 2) {
-          const x = line.points[i];
-          const y = line.points[i + 1];
-          if (x >= x1 && x <= x2 && y >= y1 && y <= y2) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      if (selected) setSelectedId(selected.id);
-      setSelection(null);
-    }
-}, [selection, lines, setSelectedId]);
-
-  // GRID GENERATOR
-  const generateGridLines = () => {
-    const visibleMinX = -position.x / scale - gridSize;
-    const visibleMaxX = (window.innerWidth - position.x) / scale + gridSize;
-    const visibleMinY = -position.y / scale - gridSize;
-    const visibleMaxY = (window.innerHeight - position.y) / scale + gridSize;
-
-    const gridLines = [];
-    for (let x = Math.floor(visibleMinX / gridSize) * gridSize; x < visibleMaxX; x += gridSize) {
-      gridLines.push(<Line key={`v-${x}`} points={[x, visibleMinY, x, visibleMaxY]} stroke="#4b4b4b" strokeWidth={1 / scale} />);
-    }
-    for (let y = Math.floor(visibleMinY / gridSize) * gridSize; y < visibleMaxY; y += gridSize) {
-      gridLines.push(<Line key={`h-${y}`} points={[visibleMinX, y, visibleMaxX, y]} stroke="#4b4b4b" strokeWidth={1 / scale} />);
-    }
-    return gridLines;
+  const getMousePos = (stage) => {
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return null;
+    const transform = stage.getAbsoluteTransform().copy();
+    transform.invert();
+    return transform.point(pointer);
   };
 
-  // PAN & ZOOM
+  const addLine = (x, y, isWall = false, isEraser = false) => {
+    const newLine = {
+      id: Date.now(),
+      points: [x, y],
+      color: drawColor,
+      thickness,
+      isWall,
+      isEraser,
+      material
+    };
+    setLines([...lines, newLine]);
+  };
+
+  const updateLastLine = (x, y) => {
+    const updated = [...lines];
+    const last = updated[updated.length - 1];
+    if (!last) return;
+    if (last.isWall) {
+      last.points = [last.points[0], last.points[1], x, y];
+    } else {
+      last.points = [...last.points, x, y];
+    }
+    setLines(updated);
+  };
+
+  // -----------------------
+  // Events
+  // -----------------------
+
+  const handleMouseDown = (e) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    // RMB = Pan
+    if (e.evt.button === 2) {
+      setIsPanning(true);
+      return;
+    }
+
+    const pos = getMousePos(stage);
+    if (!pos) return;
+
+    if (tool === "select") {
+      setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
+      return;
+    }
+
+    if (tool === "freedraw" || tool === "wall" || tool === "eraser") {
+      setIsDrawing(true);
+      addLine(pos.x, pos.y, tool === "wall", tool === "eraser");
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pos = getMousePos(stage);
+    if (!pos) return;
+
+    if (isPanning) {
+      const pointer = stage.getPointerPosition();
+      setCamera((c) => ({ ...c, x: c.x + e.evt.movementX, y: c.y + e.evt.movementY }));
+      return;
+    }
+
+    if (isDrawing && (tool === "freedraw" || tool === "wall" || tool === "eraser")) {
+      updateLastLine(pos.x, pos.y);
+      return;
+    }
+
+    if (selectionBox && tool === "select") {
+      setSelectionBox({
+        ...selectionBox,
+        width: pos.x - selectionBox.x,
+        height: pos.y - selectionBox.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (isPanning) setIsPanning(false);
+    if (isDrawing) setIsDrawing(false);
+
+    if (selectionBox && tool === "select") {
+      const { x, y, width, height } = selectionBox;
+      const x1 = Math.min(x, x + width);
+      const x2 = Math.max(x, x + width);
+      const y1 = Math.min(y, y + height);
+      const y2 = Math.max(y, y + height);
+
+      const hits = lines.filter((line) =>
+        line.points.some((_, i) => i % 2 === 0 &&
+          line.points[i] >= x1 && line.points[i] <= x2 &&
+          line.points[i + 1] >= y1 && line.points[i + 1] <= y2
+        )
+      );
+
+      if (hits.length > 1) {
+        setSelectedId(hits.map((l) => l.id));
+      } else if (hits.length === 1) {
+        setSelectedId(hits[0].id);
+      } else {
+        setSelectedId(null);
+      }
+      setSelectionBox(null);
+    }
+  };
+
   const handleWheel = (e) => {
     e.evt.preventDefault();
     const scaleBy = 1.05;
     const stage = stageRef.current;
-    const oldScale = stage.scaleX();
+    if (!stage) return;
+
+    const oldScale = camera.scale;
     const pointer = stage.getPointerPosition();
-    const mousePointTo = {
+    const mousePoint = {
       x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale,
+      y: (pointer.y - stage.y()) / oldScale
     };
+
     const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-    setScale(newScale);
-    setPosition({
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    });
+    const clamped = Math.max(0.2, Math.min(4, newScale));
+
+    const newPos = {
+      x: pointer.x - mousePoint.x * clamped,
+      y: pointer.y - mousePoint.y * clamped
+    };
+
+    setCamera({ x: newPos.x, y: newPos.y, scale: clamped });
   };
 
-  const handleDragMove = (e) => {
-    setPosition({ x: e.target.x(), y: e.target.y() });
-  };
-
+  // -----------------------
+  // Transformer
+  // -----------------------
   useEffect(() => {
-    if (trRef.current && selectedId) {
-      trRef.current.nodes([stageRef.current.findOne(`#${selectedId}`)]);
-      trRef.current.getLayer().batchDraw();
+    const tr = transformerRef.current;
+    const stage = stageRef.current;
+    if (!tr || !stage) return;
+
+    if (Array.isArray(selectedId)) {
+      const nodes = selectedId.map((id) => stage.findOne(`#${id}`)).filter(Boolean);
+      tr.nodes(nodes);
+    } else if (selectedId) {
+      const node = stage.findOne(`#${selectedId}`);
+      if (node) tr.nodes([node]);
+    } else {
+      tr.nodes([]);
     }
+    tr.getLayer()?.batchDraw();
   }, [selectedId, lines]);
 
-  return (
-    <Stage
-          width={window.innerWidth - 320}
-      height={window.innerHeight - 56}
-      onMouseMove={handleMouseMove}
-      onWheel={handleWheel}
-      onDragMove={handleDragMove}
-      onMouseUp={handleMouseUp}
-      scaleX={scale}
-      scaleY={scale}
-      x={position.x}
-      y={position.y}
-      ref={stageRef}
-      draggable={false} // disable LMB drag
-      onContextMenu={(e) => e.evt.preventDefault()} // block default RMB menu
-      onMouseDown={(e) => {
-        if (e.evt.button === 2) stageRef.current.startDrag(); // RMB = pan
-        else handleMouseDown(e); // normal LMB draw/select
-      }}
-      style={{ backgroundColor: '#1d1d1d' }}
-    >
-      <Layer>
-        {generateGridLines()}
-      </Layer>
+  // -----------------------
+  // Grid
+  // -----------------------
+  const renderGrid = () => {
+    const lines = [];
+    const size = gridSize;
+    for (let i = -2000; i < 2000; i += size) {
+      lines.push(
+        <Line key={`v${i}`} points={[i, -2000, i, 2000]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />,
+        <Line key={`h${i}`} points={[-2000, i, 2000, i]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />
+      );
+    }
+    return lines;
+  };
 
-      <Layer>
-        {lines.map(line => (
-          <Line
-            key={line.id}
-            id={line.id.toString()}
-            points={line.points}   // already flat array
-            stroke={line.color}
-            strokeWidth={line.thickness}
-            tension={line.isWall ? 0 : 0.5}
-            lineCap="round"
-            draggable
-            onClick={() => setSelectedId(line.id)}
-          />
-        ))}
-        {selection && (
-          <Rect
-            x={selection.x}
-            y={selection.y}
-            width={selection.w}
-            height={selection.h}
-            stroke="blue"
-            dash={[4, 4]}
-          />
-        )}
-        {selectedId && <Transformer ref={trRef} />}
-      </Layer>
-    </Stage>
+  return (
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <Stage
+        ref={stageRef}
+        width={window.innerWidth - 320}
+        height={window.innerHeight - 56}
+        scaleX={camera.scale}
+        scaleY={camera.scale}
+        x={camera.x}
+        y={camera.y}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onWheel={handleWheel}
+        style={{ background: "#0f1720" }}
+        onContextMenu={(e) => e.evt.preventDefault()}
+      >
+        {/* Grid Layer */}
+        <Layer>{renderGrid()}</Layer>
+
+        {/* Template Layer (faded) */}
+        <Layer opacity={0.3}>
+          {/* you could preload background lines/templates here */}
+        </Layer>
+
+        {/* Drawing Layer */}
+        <Layer>
+          {lines.map((line) => (
+            <Line
+              key={line.id}
+              id={line.id.toString()}
+              points={line.points}
+              stroke={line.isEraser ? "white" : line.color}
+              strokeWidth={line.thickness}
+              globalCompositeOperation={line.isEraser ? "destination-out" : "source-over"}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.5}
+              draggable={tool === "select"}
+              onClick={() => setSelectedId(line.id)}
+            />
+          ))}
+
+          {/* Selection Box */}
+          {selectionBox && (
+            <Rect
+              x={Math.min(selectionBox.x, selectionBox.x + selectionBox.width)}
+              y={Math.min(selectionBox.y, selectionBox.y + selectionBox.height)}
+              width={Math.abs(selectionBox.width)}
+              height={Math.abs(selectionBox.height)}
+              stroke="cyan"
+              dash={[4, 4]}
+            />
+          )}
+
+          <Transformer ref={transformerRef} rotateEnabled={true} />
+        </Layer>
+      </Stage>
+
+      {/* Thickness Preview */}
+      {tool !== "select" && (
+        <div style={{ position: "absolute", top: 80, right: 20, pointerEvents: "none" }}>
+          <svg width="60" height="60">
+            <circle cx="30" cy="30" r={thickness / 2} fill={tool === "eraser" ? "#0f1720" : drawColor} stroke="white" />
+          </svg>
+        </div>
+      )}
+    </div>
   );
 }

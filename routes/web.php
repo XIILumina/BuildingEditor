@@ -36,6 +36,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/projects/{id}/save', [ProjectController::class, 'save']);
     Route::delete('/projects/{id}', [ProjectController::class, 'destroy']);
     Route::put('/projects/{id}', [ProjectController::class, 'update'])->name('projects.update');
+    Route::post('/projects/{id}/update-name', [ProjectController::class, 'updateName'])->name('projects.update-name');
 
 });
 

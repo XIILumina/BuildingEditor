@@ -7,6 +7,7 @@ export default function Toolbar({ tool, setTool, drawColor, setDrawColor, thickn
         <button onClick={() => setTool('select')} className={`px-3 py-1 rounded ${tool === 'select' ? 'bg-[#0ea5a7] text-black' : 'bg-transparent'}`}>Select</button>
         <button onClick={() => setTool('wall')} className={`px-3 py-1 rounded ${tool === 'wall' ? 'bg-[#60a5fa] text-black' : 'bg-transparent'}`}>Wall</button>
         <button onClick={() => setTool('freedraw')} className={`px-3 py-1 rounded ${tool === 'freedraw' ? 'bg-[#f97316] text-black' : 'bg-transparent'}`}>Free</button>
+        <button onClick={() => setTool('eraser')} className={`px-3 py-1 rounded ${tool === 'eraser' ? 'bg-[#f97316] text-black' : 'bg-transparent'}`}>Eraser</button>
       </div>
 
       <div className="flex items-center bg-[#081226] p-2 rounded-lg border border-gray-800">

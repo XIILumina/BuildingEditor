@@ -31,7 +31,7 @@ class ProjectController extends Controller
         if (!$project) {
             $project = Project::create([
                 'user_id' => auth()->id(),
-                'name' => 'New Project ' . $id,
+                'name' => $name->default("New Pr"),
                 'data' => ['lines' => []],
             ]);
         }
@@ -48,7 +48,7 @@ class ProjectController extends Controller
 
         $project = Project::create([
             'user_id' => auth()->id(),
-            'name' => $request->input('name', 'New Project'),
+            'name' => $request->input('name', 'Untitled Project'),
             'data' => $request->input('data', ['lines' => []]),
         ]);
 
@@ -96,5 +96,20 @@ class ProjectController extends Controller
         $project->delete();
 
         return response()->json(['success' => true]);
+    }
+    public function updateName(Request $request, $id)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->firstOrFail();
+
+        $project->name = $request->input('name');
+        $project->save();
+
+        return response()->json(['success' => true, 'project' => $project]);
     }
 }

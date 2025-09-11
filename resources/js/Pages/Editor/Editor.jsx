@@ -5,6 +5,7 @@ import Template from "./Template";
 import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
+import TextInput from '@/Components/TextInput';
 
 function Editor({ projectId }) {
   const page = usePage();
@@ -19,6 +20,7 @@ function Editor({ projectId }) {
   const [material, setMaterial] = useState("Brick");
   const [gridSize, setGridSize] = useState(20);
   const [units, setUnits] = useState("Metric");
+  const [projectName, SetProjectName] = useState("Untitled Project");
 
   // Selection & history
   const [selectedId, setSelectedId] = useState(null);
@@ -32,6 +34,16 @@ function Editor({ projectId }) {
   };
 
 
+
+
+  useEffect(() => {
+  if (!projectId) return;
+  const delay = setTimeout(() => {
+    axios.post(`/projects/${projectId}/update-name`, { name: projectName })
+      .catch(err => console.error("Name save failed", err));
+  }, 500); // debounce typing
+  return () => clearTimeout(delay);
+}, [projectName, projectId]);
 
 
   useEffect(() => {
@@ -50,6 +62,7 @@ function Editor({ projectId }) {
 
 
 
+  
   
   useEffect(() => {
     const handleKeys = (e) => {
@@ -92,9 +105,7 @@ function Editor({ projectId }) {
           <InertiaLink href="/" className="font-bold text-lg">Blueprint App</InertiaLink>
         </div>
         <div className="text-center">
-          <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold">
-            Editor — Project #{projectId}
-          </div>
+          <TextInput onChange={(e) => SetProjectName(e.target.value)} className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold" value={projectName || "Untitled Project"} />
         </div>
         <div className="flex items-center space-x-4">
           <Toolbar
