@@ -20,18 +20,24 @@ function Dashboard() {
     }
   }, [auth.user]);
 
-  const createProject = async () => {
-    try {
-      const response = await axios.post("/projects", {
-        name: "Untitled Project",
-      });
-      const newId = response.data.id;
-      window.location.href = `/editor/${newId}`;
-    } catch (error) {
-      console.error("Error creating project:", error.response?.data || error);
-      alert("Failed to create project.");
+const createProject = async () => {
+  try {
+    const response = await axios.post("/projects", {
+      name: "Untitled Project",
+    });
+    // backend may return data.id or data.project.id — support both
+    const newId = response.data?.id || response.data?.project?.id || response.data?.project?.id;
+    if (!newId) {
+      console.error("Unexpected project create response:", response.data);
+      alert("Failed to create project (no id returned).");
+      return;
     }
-  };
+    window.location.href = `/editor/${newId}`;
+  } catch (error) {
+    console.error("Error creating project:", error.response?.data || error);
+    alert("Failed to create project.");
+  }
+};
 
   const logout = () => {
     Inertia.post("/logout");
@@ -53,7 +59,7 @@ function Dashboard() {
               >
             
                 <span>Profile</span>
-              </Link>
+              </Link> 
               <button
                 onClick={logout}
                 className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 transition"

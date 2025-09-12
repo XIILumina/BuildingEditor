@@ -30,14 +30,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/edit', [EditController::class, 'index'])->name('edit.index');
 
     // Project routes (return JSON)
-    Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
-    Route::get('/projects/{id}', [ProjectController::class, 'show'])->name('projects.show');
-    Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
-    Route::post('/projects/{id}/save', [ProjectController::class, 'save']);
-    Route::delete('/projects/{id}', [ProjectController::class, 'destroy']);
-    Route::put('/projects/{id}', [ProjectController::class, 'update'])->name('projects.update');
-    Route::post('/projects/{id}/update-name', [ProjectController::class, 'updateName'])->name('projects.update-name');
+Route::middleware(['auth'])->group(function () {
+    Route::get('/projects', [ProjectController::class, 'index']);
+    Route::post('/projects', [ProjectController::class, 'store']);
+    Route::get('/projects/{project}', [ProjectController::class, 'show']);
+    Route::post('/projects/{project}/save', [ProjectController::class, 'save']);
+    Route::put('/projects/{project}/name', [ProjectController::class, 'updateName']);
 
+    // create a layer for a project
+    Route::post('/projects/{project}/layers', [ProjectController::class, 'addLayer']);
+});
 });
 
 require __DIR__.'/auth.php';
