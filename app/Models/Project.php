@@ -9,14 +9,18 @@ class Project extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'name', 'data'];
-
-    protected $casts = [
-        'data' => 'array',
-    ];
+    protected $fillable = [
+        'user_id',
+         'name'
+        ];
 
     public function user()
     {
         return $this->belongsTo(User::class);
     }
+
+    public function layers()
+     {
+        return $this->hasMany(Layer::class);
+     }
 }

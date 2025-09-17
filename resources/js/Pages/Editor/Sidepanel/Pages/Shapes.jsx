@@ -1,7 +1,7 @@
 import React from "react";
 
+
 export default function Shapes({ addShape }) {
-    
   return (
     
     <div className="p-4 space-y-2">

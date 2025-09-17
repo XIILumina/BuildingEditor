@@ -15,7 +15,8 @@ export default function Sidepanel({
   units, setUnits,
   drawColor, setDrawColor,
   addShape
-}) {
+}) 
+{
   return (
     <div className="h-full bg-[#071227] text-white p-4">
       <div className="flex items-center justify-between mb-4">
@@ -48,7 +49,11 @@ export default function Sidepanel({
           />
         )}
 
-        {sidepanelMode === "shapes" && <Shapes addShape={addShape} />}
+        {sidepanelMode === "shapes" && 
+        <Shapes
+        addShape={addShape}
+        
+         />}
       </div>
     </div>
   );

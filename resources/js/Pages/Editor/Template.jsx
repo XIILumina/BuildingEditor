@@ -3,6 +3,7 @@ import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
 
 // Main drawing canvas
 export default function Template({
+  currentLayerId = 1,
   tool = "select",
   lines = [],
   setLines,
@@ -10,6 +11,8 @@ export default function Template({
   thickness = 6,
   gridSize = 20,
   material = "Brick",
+  shapes,        // <-- receive shapes
+  setShapes, 
   selectedId = null,
   setSelectedId = () => {}
 }) {
@@ -37,6 +40,7 @@ export default function Template({
     const newLine = {
       id: Date.now(),
       points: [x, y],
+      layer_id: currentLayerId, // <- need to know which layer is active
       color: drawColor,
       thickness,
       isWall,
@@ -140,6 +144,41 @@ export default function Template({
       setSelectionBox(null);
     }
   };
+const handleDragMove = (e) => {
+  const node = e.target;
+  node.position({
+    x: snapToGrid(node.x()),
+    y: snapToGrid(node.y())
+  });
+};
+  
+  const snapToGrid = (value, size = gridSize) => {
+  return Math.round(value / size) * size;
+};
+
+  const [guides, setGuides] = useState([]);
+
+const handleDragBoundFunc = (pos, node) => {
+  const box = node.getClientRect();
+  const stage = node.getStage();
+  const stageCenterX = stage.width() / 2;
+  const stageCenterY = stage.height() / 2;
+
+  const newGuides = [];
+
+  // Snap to stage center
+  if (Math.abs(box.x + box.width / 2 - stageCenterX) < 5) {
+    newGuides.push({ points: [stageCenterX, 0, stageCenterX, stage.height()] });
+    pos.x = stageCenterX - box.width / 2;
+  }
+  if (Math.abs(box.y + box.height / 2 - stageCenterY) < 5) {
+    newGuides.push({ points: [0, stageCenterY, stage.width(), stageCenterY] });
+    pos.y = stageCenterY - box.height / 2;
+  }
+
+  setGuides(newGuides);
+  return pos;
+};
 
   const handleWheel = (e) => {
     e.evt.preventDefault();
@@ -239,6 +278,8 @@ export default function Template({
               lineJoin="round"
               tension={0.5}
               draggable={tool === "select"}
+              onDragMove={handleDragMove}
+              dragBoundFunc={(pos) => handleDragBoundFunc(pos, e.target)}
               onClick={() => setSelectedId(line.id)}
             />
           ))}

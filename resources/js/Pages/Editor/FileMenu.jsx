@@ -1,26 +1,51 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-export default function FileMenu({ projectId, lines, gridSize, units, drawColor, thickness, material }) {
+export default function FileMenu({ projectId, lines, layers, strokes, erasers, shapes }) {
   const [open, setOpen] = useState(false);
 
-  const save = async () => {
-    try {
-      await axios.post(`/projects/${projectId}/save`, {
-        data: { lines, gridSize, units, drawColor, thickness, material },
-      });
-      alert("Project saved!");
-    } catch (err) {
-      console.error("Save failed:", err);
-      alert("Failed to save project.");
-    }
-  };
+const save = async () => {
+  try {
+    const payload = {
+      layers: layers.map(l => ({
+        id: l.id,
+        name: l.name,
+        order: l.order,
+        strokes: lines
+          .filter(line => line.layer_id === l.id && !line.isEraser)
+          .map(line => ({
+            id: line.id,
+            points: line.points,
+            color: line.color,
+            thickness: line.thickness,
+            isWall: line.isWall,
+            material: line.material,
+          })),
+        erasers: lines
+          .filter(line => line.layer_id === l.id && line.isEraser)
+          .map(line => ({
+            id: line.id,
+            points: line.points,
+            thickness: line.thickness,
+          })),
+        shapes: [] // fill in later if you add shapes
+      })),
+    };
 
-  const exportJson = () => {
-    // open export route
-    window.open(`/projects/${projectId}/export`, '_blank');
-    setOpen(false);
-  };
+    await axios.post(`/projects/${projectId}/save`, payload);
+    alert("Project saved!");
+  } catch (err) {
+    console.error("Save failed:", err.response?.data || err);
+    alert("Failed to save project.");
+  }
+};
+const exportJson = () => {
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ lines }));
+  const dlAnchorElem = document.createElement('a');
+  dlAnchorElem.setAttribute("href", dataStr);
+  dlAnchorElem.setAttribute("download", "project.json");
+  dlAnchorElem.click();
+};
 
   return (
     <div className="relative">

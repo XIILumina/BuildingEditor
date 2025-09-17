@@ -20,7 +20,11 @@ function Editor({ projectId }) {
   const [material, setMaterial] = useState("Brick");
   const [gridSize, setGridSize] = useState(20);
   const [units, setUnits] = useState("Metric");
-  const [projectName, SetProjectName] = useState("Untitled Project");
+  const [projectName, setProjectName] = useState("Untitled Project");
+  const [layers, setLayers] = useState([{ id: 1, name: "Layer 1", visible: true }]);
+  const [strokes, setStrokes] = useState([]);
+  const [erasers, setErasers] = useState([]);
+  const [shapes, setShapes] = useState([]);
 
   // Selection & history
   const [selectedId, setSelectedId] = useState(null);
@@ -33,7 +37,23 @@ function Editor({ projectId }) {
     setLines(newLines);
   };
 
-
+function addShape(type) {
+  const newShape = {
+    id: Date.now(),
+    type,
+    x: 100,
+    y: 100,
+    width: type === "rect" ? 100 : 0,
+    height: type === "rect" ? 100 : 0,
+    radius: type === "circle" ? 50 : 0,
+    fill: "#00D2FF",
+    stroke: "#000000",
+    strokeWidth: 2,
+    draggable: true,
+  };
+  setShapes((prev) => [...prev, newShape]);
+  setSelectedId(newShape.id);
+}
 
 
   useEffect(() => {
@@ -62,6 +82,7 @@ function Editor({ projectId }) {
 
 
 
+  
   
   
   useEffect(() => {
@@ -101,11 +122,18 @@ function Editor({ projectId }) {
       {/* top navbar */}
       <div className="fixed top-0 left-0 right-0 z-40 h-14 flex items-center justify-between px-4 bg-gradient-to-b from-[#07101b]/95 to-[#071426]/90 border-b border-gray-800">
         <div className="flex items-center space-x-3">
-          <FileMenu projectId={projectId} lines={lines} />
+          <FileMenu 
+            projectId={projectId}
+            lines={lines}
+            layers={layers}
+            strokes={strokes}
+            erasers={erasers}
+            shapes={shapes}
+            />
           <InertiaLink href="/" className="font-bold text-lg">Blueprint App</InertiaLink>
         </div>
         <div className="text-center">
-          <TextInput onChange={(e) => SetProjectName(e.target.value)} className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold" value={projectName || "Untitled Project"} />
+          <TextInput onChange={(e) => setProjectName(e.target.value)} className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold" value={projectName || "Untitled Project"} />
         </div>
         <div className="flex items-center space-x-4">
           <Toolbar
@@ -133,6 +161,8 @@ function Editor({ projectId }) {
             units={units}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
+            shapes={shapes}           // <-- add this
+            setShapes={setShapes}
           />
         </div>
 
@@ -152,6 +182,7 @@ function Editor({ projectId }) {
             setUnits={setUnits}
             drawColor={drawColor}
             setDrawColor={setDrawColor}
+            addShape={addShape}
           />
         </div>
       </div>
