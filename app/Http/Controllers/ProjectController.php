@@ -12,45 +12,32 @@ use Illuminate\Support\Facades\DB;
 
 class ProjectController extends Controller
 {
-    /**
-     * List all projects belonging to the authenticated user
-     */
+    // List user's projects
     public function index()
     {
         $projects = Project::where('user_id', auth()->id())->get();
-
-        return response()->json([
-            'projects' => $projects
-        ]);
+        return response()->json(['projects' => $projects]);
     }
 
-    /**
-     * Create a new project with a default layer
-     */
+    // Create project + default layer, return id
     public function store(Request $request)
     {
         $project = Project::create([
             'user_id' => auth()->id(),
-            'name'    => $request->input('name', 'Untitled Project'),
+            'name' => $request->input('name', 'Untitled Project'),
         ]);
 
-        Layer::create([
+        $layer = Layer::create([
             'project_id' => $project->id,
-            'name'       => 'Layer 1',
-            'order'      => 0,
+            'name' => 'Layer 1',
+            'order' => 0,
         ]);
 
         $project->load('layers');
-
-        return response()->json([
-            'project' => $project,
-            'id'      => $project->id,
-        ]);
+        return response()->json(['project' => $project, 'id' => $project->id]);
     }
 
-    /**
-     * Load a project + flatten its data for the editor
-     */
+    // Return project + flattened data object for the editor
     public function show($id)
     {
         $project = Project::where('id', $id)
@@ -60,68 +47,62 @@ class ProjectController extends Controller
 
         $strokes = [];
         $erasers = [];
-        $shapes  = [];
+        $shapes = [];
 
         foreach ($project->layers as $layer) {
-            // Strokes
             foreach ($layer->strokes as $st) {
+                $points = is_string($st->points) ? json_decode($st->points, true) : $st->points;
                 $strokes[] = [
-                    'id'        => $st->id,
-                    'layer_id'  => $layer->id,
-                    'points'    => is_string($st->points) ? json_decode($st->points, true) : $st->points,
-                    'color'     => $st->color,
+                    'id' => $st->id,
+                    'layer_id' => $layer->id,
+                    'points' => $points,
+                    'color' => $st->color,
                     'thickness' => $st->thickness,
-                    'isWall'    => (bool) $st->isWall,
-                    'material'  => $st->material,
+                    'isWall' => (bool)$st->isWall,
+                    'material' => $st->material,
                 ];
             }
-
-            // Erasers
             foreach ($layer->erasers as $er) {
+                $points = is_string($er->points) ? json_decode($er->points, true) : $er->points;
                 $erasers[] = [
-                    'id'        => $er->id,
-                    'layer_id'  => $layer->id,
-                    'points'    => is_string($er->points) ? json_decode($er->points, true) : $er->points,
+                    'id' => $er->id,
+                    'layer_id' => $layer->id,
+                    'points' => $points,
                     'thickness' => $er->thickness,
                 ];
             }
-
-            // Shapes
             foreach ($layer->shapes as $sh) {
                 $shapes[] = [
-                    'id'      => $sh->id,
-                    'layer_id'=> $layer->id,
-                    'type'    => $sh->type,
-                    'x'       => $sh->x,
-                    'y'       => $sh->y,
-                    'width'   => $sh->width,
-                    'height'  => $sh->height,
-                    'radius'  => $sh->radius,
-                    'color'   => $sh->color,
+                    'id' => $sh->id,
+                    'layer_id' => $layer->id,
+                    'type' => $sh->type,
+                    'x' => $sh->x,
+                    'y' => $sh->y,
+                    'width' => $sh->width,
+                    'height' => $sh->height,
+                    'radius' => $sh->radius,
+                    'color' => $sh->color,
                 ];
             }
         }
 
+        $data = [
+            'strokes' => $strokes,
+            'erasers' => $erasers,
+            'shapes' => $shapes,
+        ];
+
         return response()->json([
             'project' => [
-                'id'     => $project->id,
-                'name'   => $project->name,
+                'id' => $project->id,
+                'name' => $project->name,
                 'layers' => $project->layers,
-                'data'   => [
-                    'strokes' => $strokes,
-                    'erasers' => $erasers,
-                    'shapes'  => $shapes,
-                ],
+                'data' => $data,
             ],
         ]);
     }
 
-    /**
-     * Save project data.
-     * Supports both:
-     *  - Legacy "layers" payload
-     *  - Modern flat "data" payload
-     */
+    // Save — supports both legacy "layers" payload and modern "data" payload
     public function save(Request $request, $id)
     {
         $project = Project::where('id', $id)
@@ -130,168 +111,158 @@ class ProjectController extends Controller
             ->firstOrFail();
 
         DB::transaction(function () use ($request, $project) {
-            // ✅ Legacy save mode
+            // If front-end sends "layers" array (legacy), keep previous behavior
             if ($request->has('layers')) {
                 $layersData = $request->input('layers', []);
-
                 foreach ($layersData as $l) {
                     $layer = Layer::updateOrCreate(
                         ['id' => $l['id'] ?? null, 'project_id' => $project->id],
                         ['name' => $l['name'] ?? 'Layer', 'order' => $l['order'] ?? 0]
                     );
 
-                    // Save strokes
                     foreach ($l['strokes'] ?? [] as $s) {
                         $attrs = [
-                            'layer_id'  => $layer->id,
-                            'points'    => is_array($s['points']) ? json_encode($s['points']) : $s['points'],
-                            'color'     => $s['color'] ?? '#fff',
+                            'layer_id' => $layer->id,
+                            'points' => is_array($s['points']) ? json_encode($s['points']) : $s['points'],
+                            'color' => $s['color'] ?? '#fff',
                             'thickness' => $s['thickness'] ?? 6,
-                            'isWall'    => $s['isWall'] ?? false,
-                            'material'  => $s['material'] ?? null,
+                            'isWall' => $s['isWall'] ?? false,
+                            'material' => $s['material'] ?? null,
                         ];
-
-                        Stroke::updateOrCreate(
-                            ['id' => $s['id'] ?? null, 'layer_id' => $layer->id],
-                            $attrs
-                        );
+                        if (!empty($s['id'])) {
+                            Stroke::updateOrCreate(['id' => $s['id'], 'layer_id' => $layer->id], $attrs);
+                        } else {
+                            Stroke::create($attrs);
+                        }
                     }
 
-                    // Save erasers
                     foreach ($l['erasers'] ?? [] as $e) {
                         $attrs = [
-                            'layer_id'  => $layer->id,
-                            'points'    => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
+                            'layer_id' => $layer->id,
+                            'points' => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
                             'thickness' => $e['thickness'] ?? 6,
                         ];
-
-                        Eraser::updateOrCreate(
-                            ['id' => $e['id'] ?? null, 'layer_id' => $layer->id],
-                            $attrs
-                        );
+                        if (!empty($e['id'])) {
+                            Eraser::updateOrCreate(['id' => $e['id'], 'layer_id' => $layer->id], $attrs);
+                        } else {
+                            Eraser::create($attrs);
+                        }
                     }
 
-                    // Save shapes
                     foreach ($l['shapes'] ?? [] as $sh) {
                         $attrs = [
                             'layer_id' => $layer->id,
-                            'type'     => $sh['type'] ?? 'rect',
-                            'x'        => $sh['x'] ?? 0,
-                            'y'        => $sh['y'] ?? 0,
-                            'width'    => $sh['width'] ?? null,
-                            'height'   => $sh['height'] ?? null,
-                            'radius'   => $sh['radius'] ?? null,
-                            'color'    => $sh['color'] ?? '#9CA3AF',
+                            'type' => $sh['type'] ?? 'rect',
+                            'x' => $sh['x'] ?? 0,
+                            'y' => $sh['y'] ?? 0,
+                            'width' => $sh['width'] ?? null,
+                            'height' => $sh['height'] ?? null,
+                            'radius' => $sh['radius'] ?? null,
+                            'color' => $sh['color'] ?? '#9CA3AF',
                         ];
-
-                        Shape::updateOrCreate(
-                            ['id' => $sh['id'] ?? null, 'layer_id' => $layer->id],
-                            $attrs
-                        );
+                        if (!empty($sh['id'])) {
+                            Shape::updateOrCreate(['id' => $sh['id'], 'layer_id' => $layer->id], $attrs);
+                        } else {
+                            Shape::create($attrs);
+                        }
                     }
                 }
             }
-
-            // ✅ Modern save mode
+            // If front-end sends compact "data" object (preferred)
             elseif ($request->has('data')) {
                 $data = $request->input('data', []);
-
-                // Strokes
-                foreach ($data['strokes'] ?? [] as $s) {
-                    $layer = $project->layers->firstWhere('id', $s['layer_id']);
-                    if (!$layer) continue;
-
-                    $attrs = [
-                        'layer_id'  => $layer->id,
-                        'points'    => is_array($s['points']) ? json_encode($s['points']) : $s['points'],
-                        'color'     => $s['color'] ?? '#fff',
-                        'thickness' => $s['thickness'] ?? 6,
-                        'isWall'    => $s['isWall'] ?? false,
-                        'material'  => $s['material'] ?? null,
-                    ];
-
-                    Stroke::updateOrCreate(
-                        ['id' => $s['id'] ?? null, 'layer_id' => $layer->id],
-                        $attrs
-                    );
+                $layer = $project->layers->first();
+                if (!$layer) {
+                    $layer = Layer::create(['project_id' => $project->id, 'name' => 'Layer 1', 'order' => 0]);
                 }
 
-                // Erasers
-                foreach ($data['erasers'] ?? [] as $e) {
-                    $layer = $project->layers->firstWhere('id', $e['layer_id']);
-                    if (!$layer) continue;
+                $layerIds = $project->layers->pluck('id')->toArray();
 
+                // strokes
+                $incomingStrokeIds = [];
+                foreach ($data['strokes'] ?? [] as $s) {
                     $attrs = [
-                        'layer_id'  => $layer->id,
-                        'points'    => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
+                        'layer_id' => $s['layer_id'] ?? $layer->id,
+                        'points' => is_array($s['points']) ? json_encode($s['points']) : $s['points'],
+                        'color' => $s['color'] ?? '#fff',
+                        'thickness' => $s['thickness'] ?? 6,
+                        'isWall' => $s['isWall'] ?? false,
+                        'material' => $s['material'] ?? null,
+                    ];
+                    if (!empty($s['id'])) {
+                        $stroke = Stroke::updateOrCreate(['id' => $s['id'], 'layer_id' => $attrs['layer_id']], $attrs);
+                    } else {
+                        $stroke = Stroke::create($attrs);
+                    }
+                    $incomingStrokeIds[] = $stroke->id;
+                }
+                // remove strokes that are gone
+                Stroke::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingStrokeIds)->delete();
+
+                // erasers
+                $incomingEraserIds = [];
+                foreach ($data['erasers'] ?? [] as $e) {
+                    $attrs = [
+                        'layer_id' => $e['layer_id'] ?? $layer->id,
+                        'points' => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
                         'thickness' => $e['thickness'] ?? 6,
                     ];
-
-                    Eraser::updateOrCreate(
-                        ['id' => $e['id'] ?? null, 'layer_id' => $layer->id],
-                        $attrs
-                    );
+                    if (!empty($e['id'])) {
+                        $er = Eraser::updateOrCreate(['id' => $e['id'], 'layer_id' => $attrs['layer_id']], $attrs);
+                    } else {
+                        $er = Eraser::create($attrs);
+                    }
+                    $incomingEraserIds[] = $er->id;
                 }
+                Eraser::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingEraserIds)->delete();
 
-                // Shapes
+                // shapes
+                $incomingShapeIds = [];
                 foreach ($data['shapes'] ?? [] as $sh) {
-                    $layer = $project->layers->firstWhere('id', $sh['layer_id']);
-                    if (!$layer) continue;
-
                     $attrs = [
-                        'layer_id' => $layer->id,
-                        'type'     => $sh['type'] ?? 'rect',
-                        'x'        => $sh['x'] ?? 0,
-                        'y'        => $sh['y'] ?? 0,
-                        'width'    => $sh['width'] ?? null,
-                        'height'   => $sh['height'] ?? null,
-                        'radius'   => $sh['radius'] ?? null,
-                        'color'    => $sh['color'] ?? '#9CA3AF',
+                        'layer_id' => $sh['layer_id'] ?? $layer->id,
+                        'type' => $sh['type'] ?? 'rect',
+                        'x' => $sh['x'] ?? 0,
+                        'y' => $sh['y'] ?? 0,
+                        'width' => $sh['width'] ?? null,
+                        'height' => $sh['height'] ?? null,
+                        'radius' => $sh['radius'] ?? null,
+                        'color' => $sh['color'] ?? '#9CA3AF',
                     ];
-
-                    Shape::updateOrCreate(
-                        ['id' => $sh['id'] ?? null, 'layer_id' => $layer->id],
-                        $attrs
-                    );
+                    if (!empty($sh['id'])) {
+                        $shape = Shape::updateOrCreate(['id' => $sh['id'], 'layer_id' => $attrs['layer_id']], $attrs);
+                    } else {
+                        $shape = Shape::create($attrs);
+                    }
+                    $incomingShapeIds[] = $shape->id;
                 }
+                Shape::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingShapeIds)->delete();
             }
         });
 
         return response()->json(['success' => true]);
     }
 
-    /**
-     * Update project name
-     */
     public function updateName(Request $request, $id)
     {
         $request->validate(['name' => 'required|string|max:255']);
-
-        $project = Project::where('id', $id)
-            ->where('user_id', auth()->id())
-            ->firstOrFail();
-
-        $project->update(['name' => $request->input('name')]);
-
-        return response()->json([
-            'success' => true,
-            'project' => $project,
-        ]);
+        $project = Project::where('id', $id)->where('user_id', auth()->id())->firstOrFail();
+        $project->name = $request->input('name');
+        $project->save();
+        return response()->json(['success' => true, 'project' => $project]);
     }
 
-    /**
-     * Add a new layer to the project
-     */
+    // Create a new layer for a project
     public function addLayer(Request $request, $id)
     {
-        $project = Project::where('id', $id)
-            ->where('user_id', auth()->id())
-            ->firstOrFail();
+        $project = Project::where('id', $id)->where('user_id', auth()->id())->firstOrFail();
+        $name = $request->input('name', 'Layer ' . ($project->layers()->count() + 1));
+        $order = $request->input('order', ($project->layers()->max('order') ?? 0) + 1);
 
         $layer = Layer::create([
             'project_id' => $project->id,
-            'name'       => $request->input('name', 'Layer ' . ($project->layers()->count() + 1)),
-            'order'      => $request->input('order', ($project->layers()->max('order') ?? 0) + 1),
+            'name' => $name,
+            'order' => $order,
         ]);
 
         return response()->json(['layer' => $layer]);

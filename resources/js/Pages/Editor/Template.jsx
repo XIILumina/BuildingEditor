@@ -1,20 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+// Template.jsx
+import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
 
-// Main drawing canvas
 export default function Template({
-  currentLayerId = 1,
   tool = "select",
-  lines = [],
-  setLines,
+  strokes = [],
+  setStrokes,
+  erasers = [],
+  setErasers,
+  shapes = [],
+  setShapes,
   drawColor = "#ffffff",
   thickness = 6,
   gridSize = 20,
   material = "Brick",
-  shapes,        // <-- receive shapes
-  setShapes, 
   selectedId = null,
-  setSelectedId = () => {}
+  setSelectedId = () => {},
+  layers = [],
+  activeLayerId = 1,
+  snapToGrid = true
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
@@ -27,50 +31,60 @@ export default function Template({
   // -----------------------
   // Helpers
   // -----------------------
-
   const getMousePos = (stage) => {
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
     const transform = stage.getAbsoluteTransform().copy();
     transform.invert();
-    return transform.point(pointer);
+    let point = transform.point(pointer);
+
+    // Snap to grid if enabled and not free draw
+    if (snapToGrid && tool !== "freedraw") {
+      point.x = Math.round(point.x / gridSize) * gridSize;
+      point.y = Math.round(point.y / gridSize) * gridSize;
+    }
+    return point;
   };
 
-  const addLine = (x, y, isWall = false, isEraser = false) => {
-    const newLine = {
+  const addStroke = (x, y, isWall = false, isEraser = false) => {
+    const newStroke = {
       id: Date.now(),
       points: [x, y],
-      layer_id: currentLayerId, // <- need to know which layer is active
+      layer_id: activeLayerId,
       color: drawColor,
       thickness,
       isWall,
       isEraser,
       material
     };
-    setLines([...lines, newLine]);
+    if (isEraser) {
+      setErasers((prev) => [...prev, newStroke]);
+    } else {
+      setStrokes((prev) => [...prev, newStroke]);
+    }
   };
 
-  const updateLastLine = (x, y) => {
-    const updated = [...lines];
-    const last = updated[updated.length - 1];
-    if (!last) return;
-    if (last.isWall) {
-      last.points = [last.points[0], last.points[1], x, y];
-    } else {
-      last.points = [...last.points, x, y];
-    }
-    setLines(updated);
+  const updateLastStroke = (x, y) => {
+    setStrokes((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (!last) return prev;
+      if (last.isWall) {
+        last.points = [last.points[0], last.points[1], x, y];
+      } else {
+        last.points = [...last.points, x, y];
+      }
+      return updated;
+    });
   };
 
   // -----------------------
   // Events
   // -----------------------
-
   const handleMouseDown = (e) => {
     const stage = stageRef.current;
     if (!stage) return;
 
-    // RMB = Pan
     if (e.evt.button === 2) {
       setIsPanning(true);
       return;
@@ -84,9 +98,14 @@ export default function Template({
       return;
     }
 
-    if (tool === "freedraw" || tool === "wall" || tool === "eraser") {
+    if (tool === "freedraw" || tool === "wall") {
       setIsDrawing(true);
-      addLine(pos.x, pos.y, tool === "wall", tool === "eraser");
+      addStroke(pos.x, pos.y, tool === "wall", false);
+    }
+
+    if (tool === "eraser") {
+      setIsDrawing(true);
+      addStroke(pos.x, pos.y, false, true);
     }
   };
 
@@ -97,13 +116,12 @@ export default function Template({
     if (!pos) return;
 
     if (isPanning) {
-      const pointer = stage.getPointerPosition();
       setCamera((c) => ({ ...c, x: c.x + e.evt.movementX, y: c.y + e.evt.movementY }));
       return;
     }
 
-    if (isDrawing && (tool === "freedraw" || tool === "wall" || tool === "eraser")) {
-      updateLastLine(pos.x, pos.y);
+    if (isDrawing && (tool === "freedraw" || tool === "wall")) {
+      updateLastStroke(pos.x, pos.y);
       return;
     }
 
@@ -127,15 +145,31 @@ export default function Template({
       const y1 = Math.min(y, y + height);
       const y2 = Math.max(y, y + height);
 
-      const hits = lines.filter((line) =>
-        line.points.some((_, i) => i % 2 === 0 &&
-          line.points[i] >= x1 && line.points[i] <= x2 &&
-          line.points[i + 1] >= y1 && line.points[i + 1] <= y2
+      const hits = [
+        ...strokes.filter(
+          (s) =>
+            s.layer_id === activeLayerId &&
+            s.points.some(
+              (_, i) =>
+                i % 2 === 0 &&
+                s.points[i] >= x1 &&
+                s.points[i] <= x2 &&
+                s.points[i + 1] >= y1 &&
+                s.points[i + 1] <= y2
+            )
+        ),
+        ...shapes.filter(
+          (sh) =>
+            sh.layer_id === activeLayerId &&
+            sh.x >= x1 &&
+            sh.x <= x2 &&
+            sh.y >= y1 &&
+            sh.y <= y2
         )
-      );
+      ];
 
       if (hits.length > 1) {
-        setSelectedId(hits.map((l) => l.id));
+        setSelectedId(hits.map((h) => h.id));
       } else if (hits.length === 1) {
         setSelectedId(hits[0].id);
       } else {
@@ -144,41 +178,6 @@ export default function Template({
       setSelectionBox(null);
     }
   };
-const handleDragMove = (e) => {
-  const node = e.target;
-  node.position({
-    x: snapToGrid(node.x()),
-    y: snapToGrid(node.y())
-  });
-};
-  
-  const snapToGrid = (value, size = gridSize) => {
-  return Math.round(value / size) * size;
-};
-
-  const [guides, setGuides] = useState([]);
-
-const handleDragBoundFunc = (pos, node) => {
-  const box = node.getClientRect();
-  const stage = node.getStage();
-  const stageCenterX = stage.width() / 2;
-  const stageCenterY = stage.height() / 2;
-
-  const newGuides = [];
-
-  // Snap to stage center
-  if (Math.abs(box.x + box.width / 2 - stageCenterX) < 5) {
-    newGuides.push({ points: [stageCenterX, 0, stageCenterX, stage.height()] });
-    pos.x = stageCenterX - box.width / 2;
-  }
-  if (Math.abs(box.y + box.height / 2 - stageCenterY) < 5) {
-    newGuides.push({ points: [0, stageCenterY, stage.width(), stageCenterY] });
-    pos.y = stageCenterY - box.height / 2;
-  }
-
-  setGuides(newGuides);
-  return pos;
-};
 
   const handleWheel = (e) => {
     e.evt.preventDefault();
@@ -222,7 +221,7 @@ const handleDragBoundFunc = (pos, node) => {
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, lines]);
+  }, [selectedId, strokes, shapes]);
 
   // -----------------------
   // Grid
@@ -259,30 +258,77 @@ const handleDragBoundFunc = (pos, node) => {
         {/* Grid Layer */}
         <Layer>{renderGrid()}</Layer>
 
-        {/* Template Layer (faded) */}
-        <Layer opacity={0.3}>
-          {/* you could preload background lines/templates here */}
-        </Layer>
-
         {/* Drawing Layer */}
         <Layer>
-          {lines.map((line) => (
-            <Line
-              key={line.id}
-              id={line.id.toString()}
-              points={line.points}
-              stroke={line.isEraser ? "white" : line.color}
-              strokeWidth={line.thickness}
-              globalCompositeOperation={line.isEraser ? "destination-out" : "source-over"}
-              lineCap="round"
-              lineJoin="round"
-              tension={0.5}
-              draggable={tool === "select"}
-              onDragMove={handleDragMove}
-              dragBoundFunc={(pos) => handleDragBoundFunc(pos, e.target)}
-              onClick={() => setSelectedId(line.id)}
-            />
-          ))}
+          {strokes
+            .filter((s) => s.layer_id === activeLayerId)
+            .map((s) => (
+              <Line
+                key={s.id}
+                id={s.id.toString()}
+                points={s.points}
+                stroke={s.isEraser ? "white" : s.color}
+                strokeWidth={s.thickness}
+                globalCompositeOperation={s.isEraser ? "destination-out" : "source-over"}
+                lineCap="round"
+                lineJoin="round"
+                tension={0.5}
+                draggable={tool === "select"}
+                onClick={() => setSelectedId(s.id)}
+              />
+            ))}
+
+          {erasers
+            .filter((e) => e.layer_id === activeLayerId)
+            .map((e) => (
+              <Line
+                key={e.id}
+                id={e.id.toString()}
+                points={e.points}
+                stroke="white"
+                strokeWidth={e.thickness}
+                globalCompositeOperation="destination-out"
+                lineCap="round"
+                lineJoin="round"
+                tension={0.5}
+                draggable={false}
+              />
+            ))}
+
+          {shapes
+            .filter((sh) => sh.layer_id === activeLayerId)
+            .map((sh) => {
+              if (sh.type === "rect") {
+                return (
+                  <Rect
+                    key={sh.id}
+                    id={sh.id.toString()}
+                    x={sh.x}
+                    y={sh.y}
+                    width={sh.width}
+                    height={sh.height}
+                    fill={sh.color || "#9CA3AF"}
+                    draggable={tool === "select"}
+                    onClick={() => setSelectedId(sh.id)}
+                  />
+                );
+              }
+              if (sh.type === "circle") {
+                return (
+                  <Circle
+                    key={sh.id}
+                    id={sh.id.toString()}
+                    x={sh.x}
+                    y={sh.y}
+                    radius={sh.radius}
+                    fill={sh.color || "#9CA3AF"}
+                    draggable={tool === "select"}
+                    onClick={() => setSelectedId(sh.id)}
+                  />
+                );
+              }
+              return null;
+            })}
 
           {/* Selection Box */}
           {selectionBox && (
@@ -304,7 +350,13 @@ const handleDragBoundFunc = (pos, node) => {
       {tool !== "select" && (
         <div style={{ position: "absolute", top: 80, right: 20, pointerEvents: "none" }}>
           <svg width="60" height="60">
-            <circle cx="30" cy="30" r={thickness / 2} fill={tool === "eraser" ? "#0f1720" : drawColor} stroke="white" />
+            <circle
+              cx="30"
+              cy="30"
+              r={thickness / 2}
+              fill={tool === "eraser" ? "#0f1720" : drawColor}
+              stroke="white"
+            />
           </svg>
         </div>
       )}

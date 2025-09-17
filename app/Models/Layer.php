@@ -16,4 +16,3 @@ class Layer extends Model {
     public function erasers() { return $this->hasMany(Eraser::class); }
     public function shapes() { return $this->hasMany(Shape::class); }
 }
-
