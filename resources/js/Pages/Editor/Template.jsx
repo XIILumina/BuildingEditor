@@ -1,4 +1,3 @@
-// Template.jsx
 import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
 
@@ -18,17 +17,18 @@ export default function Template({
   setSelectedId = () => {},
   layers = [],
   activeLayerId = 1,
-  snapToGrid = true
+  snapToGrid = true,
+  onSave = () => {}
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
-
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [selectionBox, setSelectionBox] = useState(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
   const [guides, setGuides] = useState([]);
-  
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+
   // -----------------------
   // Helpers
   // -----------------------
@@ -39,7 +39,6 @@ export default function Template({
     transform.invert();
     let point = transform.point(pointer);
 
-    // Snap to grid if enabled and not free draw
     if (snapToGrid && tool !== "freedraw") {
       point.x = Math.round(point.x / gridSize) * gridSize;
       point.y = Math.round(point.y / gridSize) * gridSize;
@@ -61,7 +60,6 @@ export default function Template({
   };
 
   const eraseAtPoint = (world) => {
-    // Erase strokes
     const hitStrokeIds = strokes
       .filter((st) => st.layer_id === activeLayerId)
       .filter((st) => {
@@ -82,7 +80,6 @@ export default function Template({
       setStrokes((prev) => prev.filter((st) => !hitStrokeIds.includes(st.id)));
     }
 
-    // Erase shapes
     const hitShapeIds = shapes
       .filter((sh) => sh.layer_id === activeLayerId)
       .filter((sh) => {
@@ -108,7 +105,6 @@ export default function Template({
   const getSnapPositions = () => {
     const snaps = { vertical: new Set(), horizontal: new Set() };
 
-    // From shapes
     shapes.forEach((sh) => {
       if (sh.type === "rect") {
         const w = sh.width || 80;
@@ -130,7 +126,6 @@ export default function Template({
       }
     });
 
-    // From strokes (endpoints and midpoints)
     strokes.forEach((st) => {
       for (let i = 0; i < st.points.length; i += 2) {
         snaps.vertical.add(st.points[i]);
@@ -145,6 +140,10 @@ export default function Template({
     });
 
     return snaps;
+  };
+
+  const handleDragStart = () => {
+    setIsDraggingNode(true);
   };
 
   const handleDragMove = (e) => {
@@ -201,12 +200,12 @@ export default function Template({
   };
 
   const handleDragEnd = (e) => {
+    setIsDraggingNode(false);
     const node = e.target;
     const id = parseInt(node.id());
     const className = node.getClassName();
 
     if (className === "Line") {
-      // Bake translation into points for lines
       const absTransform = node.getAbsoluteTransform();
       const oldPoints = node.points();
       const newPoints = [];
@@ -226,7 +225,6 @@ export default function Template({
         )
       );
     } else {
-      // For shapes, just update position
       setShapes((prev) =>
         prev.map((sh) =>
           sh.id === id ? { ...sh, x: node.x(), y: node.y() } : sh
@@ -243,7 +241,6 @@ export default function Template({
       const className = node.getClassName();
 
       if (className === "Line") {
-        // Bake full transform into points for lines
         const absTransform = node.getAbsoluteTransform();
         const oldPoints = node.points();
         const newPoints = [];
@@ -266,7 +263,6 @@ export default function Template({
           )
         );
       } else {
-        // For shapes, bake scale into size, keep position and rotation
         setShapes((prev) =>
           prev.map((sh) => {
             if (sh.id !== id) return sh;
@@ -335,8 +331,9 @@ export default function Template({
     const pos = getMousePos(stage);
     if (!pos) return;
 
-    if (tool === "select") {
+    if (tool === "select" && !isDraggingNode && e.target === stage) {
       setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
+      setSelectedId(null);
       return;
     }
 
@@ -375,7 +372,6 @@ export default function Template({
         let snappedX = pos.x;
         let snappedY = pos.y;
 
-        // Vertical snap for end point
         let minDistV = Infinity;
         let bestSv = null;
         for (const sv of snaps.vertical) {
@@ -390,7 +386,6 @@ export default function Template({
           newGuides.push({ orientation: "V", position: bestSv });
         }
 
-        // Horizontal snap for end point
         let minDistH = Infinity;
         let bestSh = null;
         for (const sh of snaps.horizontal) {
@@ -413,7 +408,7 @@ export default function Template({
       return;
     }
 
-    if (selectionBox && tool === "select") {
+    if (selectionBox && tool === "select" && !isDraggingNode) {
       setSelectionBox({
         ...selectionBox,
         width: pos.x - selectionBox.x,
@@ -427,7 +422,7 @@ export default function Template({
     if (isDrawing) setIsDrawing(false);
     setGuides([]);
 
-    if (selectionBox && tool === "select") {
+    if (selectionBox && tool === "select" && !isDraggingNode) {
       const { x, y, width, height } = selectionBox;
       const x1 = Math.min(x, x + width);
       const x2 = Math.max(x, x + width);
@@ -448,8 +443,7 @@ export default function Template({
       );
 
       const hitShapes = shapes.filter(
-        (sh) =>
-          sh.layer_id === activeLayerId
+        (sh) => sh.layer_id === activeLayerId
       ).filter((sh) => {
         let left, right, top, bottom;
         if (sh.type === "rect") {
@@ -480,9 +474,11 @@ export default function Template({
       }
       setSelectionBox(null);
     }
+
+    console.log("Autosaving project...");
+    onSave();
   };
 
-  // Render guides
   const renderGuides = () => {
     const range = 2000;
     return guides.map((guide, i) => {
@@ -518,9 +514,6 @@ export default function Template({
     setCamera({ x: newPos.x, y: newPos.y, scale: clamped });
   };
 
-  // -----------------------
-  // Transformer
-  // -----------------------
   useEffect(() => {
     const tr = transformerRef.current;
     const stage = stageRef.current;
@@ -546,10 +539,6 @@ export default function Template({
     tr.getLayer()?.batchDraw();
   }, [selectedId, strokes, shapes]);
 
-  // -----------------------
-  // Grid
-  // -----------------------
-  
   const renderGrid = () => {
     const lines = [];
     const size = gridSize;
@@ -579,13 +568,8 @@ export default function Template({
         style={{ background: "#0f1720" }}
         onContextMenu={(e) => e.evt.preventDefault()}
       >
-        {/* Grid Layer */}
         <Layer>{renderGrid()}</Layer>
-
-        {/* Guides Layer */}
         <Layer>{renderGuides()}</Layer>
-
-        {/* Drawing Layer */}
         <Layer>
           {strokes
             .filter((s) => s.layer_id === activeLayerId)
@@ -603,11 +587,11 @@ export default function Template({
                 tension={0.5}
                 draggable={tool === "select"}
                 onClick={() => setSelectedId(s.id)}
+                onDragStart={handleDragStart}
                 onDragMove={handleDragMove}
                 onDragEnd={handleDragEnd}
               />
             ))}
-
           {shapes
             .filter((sh) => sh.layer_id === activeLayerId)
             .map((sh) => {
@@ -624,6 +608,7 @@ export default function Template({
                     rotation={sh.rotation || 0}
                     draggable={tool === "select"}
                     onClick={() => setSelectedId(sh.id)}
+                    onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
                   />
@@ -641,6 +626,7 @@ export default function Template({
                     rotation={sh.rotation || 0}
                     draggable={tool === "select"}
                     onClick={() => setSelectedId(sh.id)}
+                    onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
                   />
@@ -648,8 +634,6 @@ export default function Template({
               }
               return null;
             })}
-
-          {/* Selection Box */}
           {selectionBox && (
             <Rect
               x={Math.min(selectionBox.x, selectionBox.x + selectionBox.width)}
@@ -660,12 +644,9 @@ export default function Template({
               dash={[4, 4]}
             />
           )}
-
           <Transformer ref={transformerRef} rotateEnabled={true} />
         </Layer>
       </Stage>
-
-      {/* Thickness Preview */}
       {tool !== "select" && (
         <div style={{ position: "absolute", top: 80, right: 20, pointerEvents: "none" }}>
           <svg width="60" height="60">
