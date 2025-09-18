@@ -272,7 +272,7 @@ const addLayer = async () => {
   // Add shape helper used by Sidepanel
   const addShape = useCallback((type) => {
     pushHistory("add-shape");
-    const base = { id: Date.now(), type, color: "#9CA3AF" };
+    const base = { id: Date.now(), type, color: "#9CA3AF", rotation: 0 };
     if (type === "rect") {
       base.x = 150; base.y = 150; base.width = 100; base.height = 60;
     } else if (type === "circle") {
@@ -325,7 +325,7 @@ const addLayer = async () => {
   setLayers,
   activeLayerId,
   setActiveLayerId,
-  snapToGrid, // pass the snap helper
+  snapToGrid: true, // pass the snap helper
   };
 
   return (
