@@ -1,3 +1,4 @@
+// Template.jsx
 import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
 
@@ -556,7 +557,7 @@ export default function Template({
       <Stage
         ref={stageRef}
         width={window.innerWidth - 320}
-        height={window.innerHeight - 56}
+        height={window.innerHeight - 56 - 48} // Adjust for bottom bar
         scaleX={camera.scale}
         scaleY={camera.scale}
         x={camera.x}
@@ -570,6 +571,62 @@ export default function Template({
       >
         <Layer>{renderGrid()}</Layer>
         <Layer>{renderGuides()}</Layer>
+        {/* Background Layer for inactive layers */}
+        <Layer>
+          {strokes
+            .filter((s) => s.layer_id !== activeLayerId)
+            .map((s) => (
+              <Line
+                key={`bg-${s.id}`}
+                points={s.points}
+                stroke={s.color}
+                strokeWidth={s.thickness}
+                lineCap="round"
+                lineJoin="round"
+                tension={0.5}
+                opacity={0.5}
+                draggable={false}
+                listening={false}
+              />
+            ))}
+          {shapes
+            .filter((sh) => sh.layer_id !== activeLayerId)
+            .map((sh) => {
+              if (sh.type === "rect") {
+                return (
+                  <Rect
+                    key={`bg-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    width={sh.width}
+                    height={sh.height}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.5}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "circle") {
+                return (
+                  <Circle
+                    key={`bg-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    radius={sh.radius}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.5}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              return null;
+            })}
+        </Layer>
+        {/* Active Layer */}
         <Layer>
           {strokes
             .filter((s) => s.layer_id === activeLayerId)

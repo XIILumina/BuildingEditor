@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+// Editor.jsx
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePage, Link as InertiaLink } from "@inertiajs/react";
 import axios from "axios";
 
@@ -116,9 +117,55 @@ export default function Editor({ projectId }) {
     }
   };
 
+  const deleteLayer = useCallback(() => {
+    if (layers.length <= 1) return;
+    if (!confirm(`Delete layer and all its contents?`)) return;
+    const newActiveId = layers.find(l => l.id !== activeLayerId)?.id || layers[0].id;
+    setActiveLayerId(newActiveId);
+    setLayers(prev => prev.filter(l => l.id !== activeLayerId));
+    setStrokes(prev => prev.filter(s => s.layer_id !== activeLayerId));
+    setShapes(prev => prev.filter(sh => sh.layer_id !== activeLayerId));
+    setErasers(prev => prev.filter(e => e.layer_id !== activeLayerId));
+  }, [layers, activeLayerId]);
+
   const snapToGrid = (val) => {
     return Math.round(val / gridSize) * gridSize;
   };
+
+  const selectedObject = useMemo(() => {
+    if (!selectedId || Array.isArray(selectedId)) return null;
+    return strokes.find(s => s.id === selectedId) || shapes.find(sh => sh.id === selectedId);
+  }, [selectedId, strokes, shapes]);
+
+  const updateSelectedProperty = useCallback((property, value) => {
+    if (!selectedId || Array.isArray(selectedId)) return;
+    pushHistory(`update-${property}`);
+    if (strokes.some(s => s.id === selectedId)) {
+      setStrokes(prev => prev.map(s => {
+        if (s.id !== selectedId) return s;
+        let newS = { ...s };
+        if (property === 'length' && s.isWall && s.points.length === 4) {
+          const [x1, y1, x2, y2] = s.points;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const currentLen = Math.hypot(dx, dy);
+          if (currentLen === 0) return s;
+          const scale = value / currentLen;
+          newS.points = [x1, y1, x1 + dx * scale, y1 + dy * scale];
+        }
+        return newS;
+      }));
+    } else if (shapes.some(sh => sh.id === selectedId)) {
+      setShapes(prev => prev.map(sh => {
+        if (sh.id !== selectedId) return sh;
+        let newSh = { ...sh };
+        if (property === 'width') newSh.width = value;
+        else if (property === 'height') newSh.height = value;
+        else if (property === 'radius') newSh.radius = value;
+        return newSh;
+      }));
+    }
+  }, [selectedId, strokes, shapes, pushHistory]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -216,12 +263,14 @@ export default function Editor({ projectId }) {
             clone.id = Date.now() + Math.floor(Math.random()*10000);
             const delta = 10;
             clone.points = clone.points.map((p,i) => p + (i%2===0?delta:delta));
+            clone.layer_id = activeLayerId;
             pastedStrokes.push(clone);
           } else if (it.type === "shape") {
             const clone = JSON.parse(JSON.stringify(it.data));
             clone.id = Date.now() + Math.floor(Math.random()*10000);
             clone.x = (clone.x || 0) + 10;
             clone.y = (clone.y || 0) + 10;
+            clone.layer_id = activeLayerId;
             pastedShapes.push(clone);
           }
         });
@@ -233,7 +282,7 @@ export default function Editor({ projectId }) {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, strokes, shapes, pushHistory, snapshot, saveProject]);
+  }, [selectedId, strokes, shapes, pushHistory, snapshot, saveProject, activeLayerId]);
 
   const addShape = useCallback((type) => {
     pushHistory("add-shape");
@@ -276,7 +325,7 @@ export default function Editor({ projectId }) {
     pushHistory("delete");
     setStrokes((s) => s.filter((x) => !ids.includes(x.id)));
     setShapes((s) => s.filter((x) => !ids.includes(x.id)));
-    setErasers((e) => e.filter((x) => !ids.includes(x.id)));
+    setErasers((e) => e.filter((x) => !ids.includes(e.id)));
     setSelectedId(null);
   }, [selectedId, pushHistory]);
 
@@ -339,7 +388,7 @@ export default function Editor({ projectId }) {
           />
         </div>
       </div>
-      <div className="absolute top-14 left-0 right-0 bottom-0 flex">
+      <div className="absolute top-14 left-0 right-0 bottom-12 flex">
         <div className="flex-1 relative z-0">
           <Template {...templateProps} />
         </div>
@@ -359,8 +408,42 @@ export default function Editor({ projectId }) {
             drawColor={drawColor}
             setDrawColor={setDrawColor}
             addShape={addShape}
+            selectedObject={selectedObject}
+            updateSelectedProperty={updateSelectedProperty}
           />
         </div>
+      </div>
+      {/* Layers Footer */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-gray-800 flex items-center px-4 border-t border-gray-700">
+        <div className="flex items-center space-x-2 overflow-x-auto flex-1">
+          {layers.map((layer) => (
+            <button
+              key={layer.id}
+              onClick={() => setActiveLayerId(layer.id)}
+              className={`px-4 py-2 rounded whitespace-nowrap transition-colors ${
+                activeLayerId === layer.id
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+              }`}
+            >
+              {layer.name}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={addLayer}
+          className="px-4 py-2 bg-green-500 rounded hover:bg-green-600 ml-2 whitespace-nowrap"
+        >
+          + Add Layer
+        </button>
+        {layers.length > 1 && (
+          <button
+            onClick={deleteLayer}
+            className="px-4 py-2 bg-red-500 rounded hover:bg-red-600 ml-2 whitespace-nowrap"
+          >
+            Delete Layer
+          </button>
+        )}
       </div>
     </div>
   );
