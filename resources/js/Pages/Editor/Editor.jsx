@@ -38,8 +38,10 @@ export default function Editor({ projectId }) {
       erasers: JSON.parse(JSON.stringify(erasers)),
       shapes: JSON.parse(JSON.stringify(shapes)),
       projectName,
+      layers: JSON.parse(JSON.stringify(layers)),
+      activeLayerId,
     };
-  }, [strokes, erasers, shapes, projectName]);
+  }, [strokes, erasers, shapes, projectName, layers, activeLayerId]);
 
   const pushHistory = useCallback((label) => {
     setHistory((h) => [...h, snapshot()]);
@@ -60,7 +62,9 @@ export default function Editor({ projectId }) {
     if (!projectId) return;
     axios.get(`/projects/${projectId}`)
       .then((res) => {
-        const data = res.data?.project?.data || {};
+        const project = res.data?.project;
+        if (!project) return;
+        const data = project.data || {};
         if (data.strokes) setStrokes(data.strokes);
         if (data.erasers) setErasers(data.erasers);
         if (data.shapes) setShapes(data.shapes);
@@ -69,7 +73,11 @@ export default function Editor({ projectId }) {
         if (data.drawColor) setDrawColor(data.drawColor);
         if (data.thickness) setThickness(data.thickness);
         if (data.material) setMaterial(data.material);
-        if (data.projectName) setProjectName(data.projectName);
+        if (project.name) setProjectName(project.name);
+        if (project.layers && project.layers.length > 0) {
+          setLayers(project.layers);
+          setActiveLayerId(project.layers[0].id);
+        }
       })
       .catch((err) => {
         console.error("Failed to load project:", err);
@@ -117,16 +125,16 @@ export default function Editor({ projectId }) {
     }
   };
 
-  const deleteLayer = useCallback(() => {
+  const deleteLayer = useCallback((layerId) => {
     if (layers.length <= 1) return;
     if (!confirm(`Delete layer and all its contents?`)) return;
-    const newActiveId = layers.find(l => l.id !== activeLayerId)?.id || layers[0].id;
+    const newActiveId = layers.find(l => l.id !== layerId)?.id || layers[0].id;
     setActiveLayerId(newActiveId);
-    setLayers(prev => prev.filter(l => l.id !== activeLayerId));
-    setStrokes(prev => prev.filter(s => s.layer_id !== activeLayerId));
-    setShapes(prev => prev.filter(sh => sh.layer_id !== activeLayerId));
-    setErasers(prev => prev.filter(e => e.layer_id !== activeLayerId));
-  }, [layers, activeLayerId]);
+    setLayers(prev => prev.filter(l => l.id !== layerId));
+    setStrokes(prev => prev.filter(s => s.layer_id !== layerId));
+    setShapes(prev => prev.filter(sh => sh.layer_id !== layerId));
+    setErasers(prev => prev.filter(e => e.layer_id !== layerId));
+  }, [layers]);
 
   const snapToGrid = (val) => {
     return Math.round(val / gridSize) * gridSize;
@@ -166,6 +174,24 @@ export default function Editor({ projectId }) {
       }));
     }
   }, [selectedId, strokes, shapes, pushHistory]);
+
+    const deleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
+    pushHistory("delete");
+    setStrokes((s) => s.filter((x) => !ids.includes(x.id)));
+    setShapes((s) => s.filter((x) => !ids.includes(x.id)));
+    setErasers((e) => e.filter((x) => !ids.includes(e.id)));
+    setSelectedId(null);
+  }, [selectedId, pushHistory]);
+
+  
+  // Unselect when tool changes to non-select
+  useEffect(() => {
+    if (tool !== "select") {
+      setSelectedId(null);
+    }
+  }, [tool]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -216,6 +242,8 @@ export default function Editor({ projectId }) {
           setErasers(last.erasers || []);
           setShapes(last.shapes || []);
           setProjectName(last.projectName || "Untitled Project");
+          setLayers(last.layers || [{ id: 1, name: "Layer 1" }]);
+          setActiveLayerId(last.activeLayerId || 1);
           return h.slice(0, -1);
         });
         return;
@@ -231,6 +259,8 @@ export default function Editor({ projectId }) {
           setErasers(next.erasers || []);
           setShapes(next.shapes || []);
           setProjectName(next.projectName || "Untitled Project");
+          setLayers(next.layers || [{ id: 1, name: "Layer 1" }]);
+          setActiveLayerId(next.activeLayerId || 1);
           return r.slice(0, -1);
         });
         return;
@@ -282,7 +312,7 @@ export default function Editor({ projectId }) {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, strokes, shapes, pushHistory, snapshot, saveProject, activeLayerId]);
+  }, [selectedId, strokes, shapes, pushHistory, snapshot, saveProject, activeLayerId, deleteSelected]);
 
   const addShape = useCallback((type) => {
     pushHistory("add-shape");
@@ -318,16 +348,6 @@ export default function Editor({ projectId }) {
     pushHistory("shapes-change");
     setShapes(newShapes);
   };
-
-  const deleteSelected = useCallback(() => {
-    if (!selectedId) return;
-    const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
-    pushHistory("delete");
-    setStrokes((s) => s.filter((x) => !ids.includes(x.id)));
-    setShapes((s) => s.filter((x) => !ids.includes(x.id)));
-    setErasers((e) => e.filter((x) => !ids.includes(e.id)));
-    setSelectedId(null);
-  }, [selectedId, pushHistory]);
 
   const templateProps = {
     tool,
@@ -417,33 +437,34 @@ export default function Editor({ projectId }) {
       <div className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-gray-800 flex items-center px-4 border-t border-gray-700">
         <div className="flex items-center space-x-2 overflow-x-auto flex-1">
           {layers.map((layer) => (
-            <button
-              key={layer.id}
-              onClick={() => setActiveLayerId(layer.id)}
-              className={`px-4 py-2 rounded whitespace-nowrap transition-colors ${
-                activeLayerId === layer.id
-                  ? "bg-blue-500 text-white"
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-              }`}
-            >
-              {layer.name}
-            </button>
+            <div key={layer.id} className="flex items-center">
+              <button
+                onClick={() => setActiveLayerId(layer.id)}
+                className={`px-2 py-2 rounded-sm whitespace-nowrap transition-colors ${
+                  activeLayerId === layer.id
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                }`}
+              >
+                {layer.name}
+              </button>
+              {layers.length > 1 && (
+                <button
+                  onClick={() => deleteLayer(layer.id)}
+                  className="ml-1 px-1 py-1 bg-red-500 text-xs rounded hover:bg-red-600"
+                >
+                  X
+                </button>
+              )}
+            </div>
           ))}
         </div>
         <button
           onClick={addLayer}
-          className="px-4 py-2 bg-green-500 rounded hover:bg-green-600 ml-2 whitespace-nowrap"
+          className="px-4 py-2 bg-gray-500 rounded-md hover:bg-green-600 ml-2"
         >
-          + Add Layer
+          +
         </button>
-        {layers.length > 1 && (
-          <button
-            onClick={deleteLayer}
-            className="px-4 py-2 bg-red-500 rounded hover:bg-red-600 ml-2 whitespace-nowrap"
-          >
-            Delete Layer
-          </button>
-        )}
       </div>
     </div>
   );

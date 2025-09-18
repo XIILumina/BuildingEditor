@@ -79,6 +79,7 @@ export default function Template({
 
     if (hitStrokeIds.length > 0) {
       setStrokes((prev) => prev.filter((st) => !hitStrokeIds.includes(st.id)));
+      setSelectedId(null); // Unselect if erased
     }
 
     const hitShapeIds = shapes
@@ -100,6 +101,7 @@ export default function Template({
 
     if (hitShapeIds.length > 0) {
       setShapes((prev) => prev.filter((sh) => !hitShapeIds.includes(sh.id)));
+      setSelectedId(null); // Unselect if erased
     }
   };
 
@@ -552,6 +554,12 @@ export default function Template({
     return lines;
   };
 
+  const handleSelectObject = (id) => {
+    if (tool === "select") {
+      setSelectedId(id);
+    }
+  };
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <Stage
@@ -643,7 +651,7 @@ export default function Template({
                 lineJoin="round"
                 tension={0.5}
                 draggable={tool === "select"}
-                onClick={() => setSelectedId(s.id)}
+                onClick={() => handleSelectObject(s.id)}
                 onDragStart={handleDragStart}
                 onDragMove={handleDragMove}
                 onDragEnd={handleDragEnd}
@@ -664,7 +672,7 @@ export default function Template({
                     fill={sh.color || "#9CA3AF"}
                     rotation={sh.rotation || 0}
                     draggable={tool === "select"}
-                    onClick={() => setSelectedId(sh.id)}
+                    onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
@@ -682,7 +690,7 @@ export default function Template({
                     fill={sh.color || "#9CA3AF"}
                     rotation={sh.rotation || 0}
                     draggable={tool === "select"}
-                    onClick={() => setSelectedId(sh.id)}
+                    onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
