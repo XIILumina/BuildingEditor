@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/*  Eraser modelis, kas pārstāv dzēšgumijas rīku slānī. */
 class Eraser extends Model {
 
     protected $fillable = [

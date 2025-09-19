@@ -375,6 +375,7 @@ export default function Editor({ projectId }) {
     <div className="relative h-screen w-screen bg-[#071021] text-white overflow-hidden">
       <div className="fixed top-0 left-0 right-0 z-40 h-14 flex items-center justify-between px-4 bg-gradient-to-b from-[#07101b]/95 to-[#071426]/90 border-b border-gray-800">
         <div className="flex items-center space-x-3">
+          {/* Ievieto FileMenu komponentu, padodot nepieciešamos propus ar informāciju */}
           <FileMenu
             projectId={projectId}
             strokes={strokes}
@@ -388,9 +389,11 @@ export default function Editor({ projectId }) {
             projectName={projectName}
             onSave={saveProject}
           />
+          {/* ievietots bloks ar Logo un nosaukumu, kas ved uz mājaslapu */}
           <InertiaLink href="/" className="font-bold text-lg">Blueprint App</InertiaLink>
         </div>
         <div className="text-center">
+          {/* Ievietojas TextInput Bloku kodā, ievietojot <TextInput /> komponentu padodot projectName un setProjectName */}
           <TextInput
             onChange={(e) => setProjectName(e.target.value)}
             className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold"
