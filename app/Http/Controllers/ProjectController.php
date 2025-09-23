@@ -220,7 +220,13 @@ class ProjectController extends Controller
 
         return response()->json(['success' => true]);
     }
-
+    public function destroy($id)
+    {
+        $project = Project::where('id', $id)->where('user_id', auth()->id())->firstOrFail();
+        $project->delete();
+        return response()->json(['success' => true]);
+    }
+    
     public function updateName(Request $request, $id)
     {
         $request->validate(['name' => 'required|string|max:255']);

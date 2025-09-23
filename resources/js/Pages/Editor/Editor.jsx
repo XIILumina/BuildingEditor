@@ -44,6 +44,7 @@ export default function Editor({ projectId }) {
   const [redoStack, setRedoStack] = useState([]);
   const [layers, setLayers] = useState([{ id: 1, name: "Layer 1" }]);
   const [activeLayerId, setActiveLayerId] = useState(1);
+  
 
   const saveInProgress = useRef(false);
 
@@ -401,41 +402,43 @@ export default function Editor({ projectId }) {
         animate={{ y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="flex items-center space-x-4">
-          <FileMenu
-            projectId={projectId}
-            strokes={strokes}
-            erasers={erasers}
-            shapes={shapes}
-            gridSize={gridSize}
-            units={units}
-            drawColor={drawColor}
-            thickness={thickness}
-            material={material}
-            projectName={projectName}
-            onSave={saveProject}
-          />
-          <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
-            Blueprint App
-          </InertiaLink>
-        </div>
-        <div className="text-center">
-          <TextInput
-            onChange={(e) => setProjectName(e.target.value)}
-            className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#06b6d4]"
-            value={projectName || "Untitled Project"}
-          />
-        </div>
-        <div className="flex items-center space-x-4">
-          {/* Toolbar moved below */}
+        <div className="relative flex items-center w-full">
+          <div className="flex items-center space-x-4">
+            <FileMenu
+              projectId={projectId}
+              strokes={strokes}
+              erasers={erasers}
+              shapes={shapes}
+              gridSize={gridSize}
+              units={units}
+              drawColor={drawColor}
+              thickness={thickness}
+              material={material}
+              projectName={projectName}
+              onSave={saveProject}
+            />
+            <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
+              Blueprint App
+            </InertiaLink>
+          </div>
+          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
+            <TextInput
+              onChange={(e) => setProjectName(e.target.value)}
+              className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#06b6d4]"
+              value={projectName || "Untitled Project"}
+            />
+          </div>
+          <div className="flex items-center space-x-4 ml-auto">
+            {/* right content */}
+          </div>
         </div>
       </motion.div>
-      <motion.div
-        className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40"
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.2 }}
-      >
+<motion.div
+  className="fixed top-20 left-1/3 transform -translate-x-1/2 z-40"
+  initial={{ y: -20, opacity: 0 }}
+  animate={{ y: 0, opacity: 1 }}
+  transition={{ duration: 0.4, delay: 0.2 }}
+>
         <Toolbar
           tool={tool}
           setTool={setTool}

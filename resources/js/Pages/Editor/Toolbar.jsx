@@ -76,13 +76,14 @@ export default function Toolbar({ tool, setTool, drawColor, setDrawColor, thickn
         )}
       </div>
       <div className="flex rounded-3xl items-center bg-[#334155] p-2 border border-[#334155] shadow-md">
-        <TbColorFilter size={22} className="text-[#06b6d4]" />
         <input
+        
           type="color"
           value={drawColor || '#ffffff'}
           onChange={(e) => setDrawColor(e.target.value)}
           className="w-6 h-6 ml-1 rounded-3xl cursor-pointer "
-        />
+        ></input>
+
       </div>
     </motion.div>
   );

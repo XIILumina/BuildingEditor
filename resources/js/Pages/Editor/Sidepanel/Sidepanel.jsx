@@ -6,6 +6,7 @@ import Shapes from "./Pages/Shapes";
 import Style from "./Pages/Style";
 
 export default function Sidepanel({
+  setShowSidepanel,
   sidepanelMode,
   setSidepanelMode,
   projectId,
@@ -24,12 +25,19 @@ export default function Sidepanel({
   updateSelectedProperty
 }) {
   return (
+    
     <motion.div
       className="h-full bg-[#071227] text-[#f3f4f6] p-6 shadow-md border-l border-[#334155]"
       initial={{ x: 300 }}
       animate={{ x: 0 }}
       transition={{ duration: 0.4 }}
     >
+      <button
+        className="absolute top-4 left-0 -translate-x-full bg-[#06b6d4] text-[#071021] px-2 py-1 rounded-r shadow-md"
+        onClick={() => setShowSidepanel(false)}
+      >
+        &gt;
+      </button>
       <div className="flex items-center justify-between mb-6">
         <div className="flex space-x-2">
           {['shapes', 'properties', 'settings', 'style'].map((mode) => (

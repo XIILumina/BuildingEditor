@@ -618,6 +618,7 @@ export default function Template({
               }
               if (sh.type === "circle") {
                 return (
+                  /* definējam apļa lielumus, ja tas tiek izveidots, kā objekts.*/
                   <Circle
                     key={`bg-${sh.id}`}
                     x={sh.x}
