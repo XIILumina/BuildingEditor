@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
 export default function FileMenu({
@@ -13,13 +14,12 @@ export default function FileMenu({
   thickness,
   material,
   projectName,
-  onSave // passed from Editor
+  onSave
 }) {
   const [open, setOpen] = useState(false);
 
   const save = async () => {
     if (!projectId) return alert("No project loaded!");
-    // prefer parent-provided save function (Editor.saveProject)
     if (onSave) {
       try {
         await onSave();
@@ -30,8 +30,6 @@ export default function FileMenu({
       }
       return;
     }
-
-    // fallback (if needed)
     try {
       await axios.post(`/projects/${projectId}/save`, {
         data: {
@@ -59,17 +57,64 @@ export default function FileMenu({
     window.open(`/projects/${projectId}/export`, '_blank');
     setOpen(false);
   };
-
+  const exportPng = () => {
+    if (!projectId) return alert("No project loaded!");
+    window.open(`/projects/${projectId}/export-png`, '_blank');
+    setOpen(false);
+  }
   return (
     <div className="relative">
-      <button onClick={() => setOpen(s => !s)} className="bg-[#071a2a] px-3 py-1 rounded border border-gray-700">File ▾</button>
-      {open && (
-        <div className="absolute mt-2 left-0 bg-white text-black rounded shadow-lg w-48 z-50">
-          <button onClick={save} className="w-full px-4 py-2 text-left hover:bg-gray-100">Save</button>
-          <button className="w-full px-4 py-2 text-left hover:bg-gray-100" onClick={() => { navigator.clipboard.writeText(JSON.stringify({ layers, strokes, erasers, shapes })).then(() => alert('Copied JSON to clipboard')) }}>Copy JSON</button>
-          <button className="w-full px-4 py-2 text-left hover:bg-gray-100" onClick={exportJson}>Export as JSON</button>
-        </div>
-      )}
+      <motion.button
+        onClick={() => setOpen(s => !s)}
+        className="bg-gradient-to-r from-[#1e293b] to-[#334155] px-4 py-2 rounded-lg border border-[#334155] text-gray-200 shadow-md hover:shadow-lg"
+        whileHover={{ scale: 1.05, rotate: 2 }}
+        whileTap={{ scale: 0.95 }}
+      >
+        File ▾
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="absolute mt-2 left-0 bg-[#1e293b]/95 backdrop-blur-md text-white rounded-lg shadow-xl w-48 z-50 border border-[#334155]/50"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.button
+              onClick={save}
+              className="w-full px-4 py-2 text-left hover:bg-[#334155] rounded-t-lg"
+              whileHover={{ x: 5 }}
+            >
+              Save
+            </motion.button>
+            <motion.button
+              className="w-full px-4 py-2 text-left hover:bg-[#334155]"
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify({ layers, strokes, erasers, shapes })).then(() => alert('Copied JSON to clipboard'));
+                setOpen(false);
+              }}
+              whileHover={{ x: 5 }}
+            >
+              Copy JSON
+            </motion.button>
+            <motion.button
+              className="w-full px-4 py-2 text-left hover:bg-[#334155] rounded-b-lg"
+              onClick={exportJson}
+              whileHover={{ x: 5 }}
+            >
+              Export as JSON
+            </motion.button>
+                        <motion.button
+              className="w-full px-4 py-2 text-left hover:bg-[#334155] rounded-b-lg"
+              onClick={exportPng}
+              whileHover={{ x: 5 }}
+            >
+              Save as Image (PNG)
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
-};
+}

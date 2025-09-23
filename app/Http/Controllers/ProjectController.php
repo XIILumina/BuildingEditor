@@ -245,4 +245,138 @@ class ProjectController extends Controller
 
         return response()->json(['layer' => $layer]);
     }
+   public function exportPNG($id)
+    {
+        // Fetch project with layers, strokes, erasers, and shapes
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->with(['layers.strokes', 'layers.erasers', 'layers.shapes'])
+            ->firstOrFail();
+
+        // Calculate canvas bounds dynamically
+        $minX = $minY = PHP_INT_MAX;
+        $maxX = $maxY = PHP_INT_MIN;
+
+        foreach ($project->layers as $layer) {
+            foreach ($layer->shapes as $shape) {
+                if ($shape->type === 'rect') {
+                    $minX = min($minX, $shape->x);
+                    $minY = min($minY, $shape->y);
+                    $maxX = max($maxX, $shape->x + ($shape->width ?? 0));
+                    $maxY = max($maxY, $shape->y + ($shape->height ?? 0));
+                } elseif ($shape->type === 'circle') {
+                    $radius = $shape->radius ?? 40;
+                    $centerX = $shape->x ?? 0;
+                    $centerY = $shape->y ?? 0;
+                    $minX = min($minX, $centerX - $radius);
+                    $minY = min($minY, $centerY - $radius);
+                    $maxX = max($maxX, $centerX + $radius);
+                    $maxY = max($maxY, $centerY + $radius);
+                }
+            }
+            foreach ($layer->strokes as $stroke) {
+                $points = is_string($stroke->points) ? json_decode($stroke->points, true) : $stroke->points;
+                for ($i = 0; $i < count($points); $i += 2) {
+                    $minX = min($minX, $points[$i]);
+                    $minY = min($minY, $points[$i + 1]);
+                    $maxX = max($maxX, $points[$i]);
+                    $maxY = max($maxY, $points[$i + 1]);
+                }
+            }
+            foreach ($layer->erasers as $eraser) {
+                $points = is_string($eraser->points) ? json_decode($eraser->points, true) : $eraser->points;
+                for ($i = 0; $i < count($points); $i += 2) {
+                    $minX = min($minX, $points[$i]);
+                    $minY = min($minY, $points[$i + 1]);
+                    $maxX = max($maxX, $points[$i]);
+                    $maxY = max($maxY, $points[$i + 1]);
+                }
+            }
+        }
+
+        // Set canvas size with padding
+        $padding = 50;
+        $width = max(2000, (int)($maxX - $minX + 2 * $padding));
+        $height = max(2000, (int)($maxY - $minY + 2 * $padding));
+        $offsetX = $minX < 0 ? -$minX + $padding : $padding;
+        $offsetY = $minY < 0 ? -$minY + $padding : $padding;
+
+        // Create canvas
+        $image = imagecreatetruecolor($width, $height);
+        $bgColor = imagecolorallocate($image, 255, 255, 255); // White background
+        imagefill($image, 0, 0, $bgColor);
+
+        // Draw layers in order
+        foreach ($project->layers as $layer) {
+            // Draw shapes
+            foreach ($layer->shapes as $shape) {
+                // Parse color (default to black if invalid)
+                $color = $shape->color ? sscanf($shape->color, "#%02x%02x%02x") : [0, 0, 0];
+                $imgColor = imagecolorallocate($image, $color[0], $color[1], $color[2]);
+
+                // Adjust coordinates with offset
+                switch ($shape->type) {
+                    case 'rect':
+                        $x = ($shape->x ?? 0) + $offsetX;
+                        $y = ($shape->y ?? 0) + $offsetY;
+                        $width = $shape->width ?? 100;
+                        $height = $shape->height ?? 60;
+                        if ($width > 0 && $height > 0) {
+                            imagefilledrectangle($image, $x, $y, $x + $width, $y + $height, $imgColor);
+                        }
+                        break;
+                    case 'circle':
+                        $centerX = ($shape->x ?? 0) + $offsetX;
+                        $centerY = ($shape->y ?? 0) + $offsetY;
+                        $radius = $shape->radius ?? 40;
+                        if ($radius > 0) {
+                            imagefilledellipse($image, $centerX, $centerY, $radius * 2, $radius * 2, $imgColor);
+                        }
+                        break;
+                }
+            }
+
+            // Draw strokes
+            foreach ($layer->strokes as $stroke) {
+                $points = is_string($stroke->points) ? json_decode($stroke->points, true) : $stroke->points;
+                if (count($points) < 2) continue;
+
+                $color = $stroke->color ? sscanf($stroke->color, "#%02x%02x%02x") : [0, 0, 0];
+                $imgColor = imagecolorallocate($image, $color[0], $color[1], $color[2]);
+                imagesetthickness($image, max(1, (int)($stroke->thickness ?? 6)));
+
+                for ($i = 0; $i < count($points) - 2; $i += 2) {
+                    $x1 = $points[$i] + $offsetX;
+                    $y1 = $points[$i + 1] + $offsetY;
+                    $x2 = $points[$i + 2] + $offsetX;
+                    $y2 = $points[$i + 3] + $offsetY;
+                    imageline($image, $x1, $y1, $x2, $y2, $imgColor);
+                }
+            }
+
+            // Draw erasers (as white strokes to simulate erasing)
+            foreach ($layer->erasers as $eraser) {
+                $points = is_string($eraser->points) ? json_decode($eraser->points, true) : $eraser->points;
+                if (count($points) < 2) continue;
+
+                $imgColor = imagecolorallocate($image, 255, 255, 255); // White for erasing
+                imagesetthickness($image, max(1, (int)($eraser->thickness ?? 40)));
+
+                for ($i = 0; $i < count($points) - 2; $i += 2) {
+                    $x1 = $points[$i] + $offsetX;
+                    $y1 = $points[$i + 1] + $offsetY;
+                    $x2 = $points[$i + 2] + $offsetX;
+                    $y2 = $points[$i + 3] + $offsetY;
+                    imageline($image, $x1, $y1, $x2, $y2, $imgColor);
+                }
+            }
+        }
+
+        // Set headers and output PNG
+        header('Content-Type: image/png');
+        header('Content-Disposition: attachment; filename="project_' . $id . '.png"');
+        imagepng($image);
+        imagedestroy($image);
+        exit;
+    }
 }

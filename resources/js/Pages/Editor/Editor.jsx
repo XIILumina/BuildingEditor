@@ -1,13 +1,28 @@
-// Editor.jsx
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { usePage, Link as InertiaLink } from "@inertiajs/react";
 import axios from "axios";
-
+import { motion, AnimatePresence } from "framer-motion";
 import Template from "./Template";
 import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
 import TextInput from '@/Components/TextInput';
+
+let aiRequestInProgress = false;
+
+const askAI = async (prompt) => {
+  if (aiRequestInProgress) return;
+  aiRequestInProgress = true;
+  try {
+    const res = await axios.post('/openai/chat', { prompt });
+    return res.data.reply;
+  } catch (err) {
+    console.error("OpenAI error:", err);
+    alert("AI request failed.");
+  } finally {
+    aiRequestInProgress = false;
+  }
+};
 
 export default function Editor({ projectId }) {
   const page = usePage();
@@ -175,7 +190,7 @@ export default function Editor({ projectId }) {
     }
   }, [selectedId, strokes, shapes, pushHistory]);
 
-    const deleteSelected = useCallback(() => {
+  const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
     pushHistory("delete");
@@ -185,11 +200,13 @@ export default function Editor({ projectId }) {
     setSelectedId(null);
   }, [selectedId, pushHistory]);
 
-  
-  // Unselect when tool changes to non-select
   useEffect(() => {
     if (tool !== "select") {
       setSelectedId(null);
+    }
+    // Set eraser thickness to 40 when selected
+    if (tool === "eraser") {
+      setThickness(40);
     }
   }, [tool]);
 
@@ -372,10 +389,19 @@ export default function Editor({ projectId }) {
   };
 
   return (
-    <div className="relative h-screen w-screen bg-[#071021] text-white overflow-hidden">
-      <div className="fixed top-0 left-0 right-0 z-40 h-14 flex items-center justify-between px-4 bg-gradient-to-b from-[#07101b]/95 to-[#071426]/90 border-b border-gray-800">
-        <div className="flex items-center space-x-3">
-          {/* Ievieto FileMenu komponentu, padodot nepieciešamos propus ar informāciju */}
+    <motion.div
+      className="relative h-screen w-screen bg-[#071021] text-white overflow-hidden"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+    >
+      <motion.div
+        className="fixed top-0 left-0 right-0 z-40 h-16 flex items-center justify-between px-6 bg-[#1e293b] border-b border-[#334155] shadow-md"
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <div className="flex items-center space-x-4">
           <FileMenu
             projectId={projectId}
             strokes={strokes}
@@ -389,33 +415,46 @@ export default function Editor({ projectId }) {
             projectName={projectName}
             onSave={saveProject}
           />
-          {/* ievietots bloks ar Logo un nosaukumu, kas ved uz mājaslapu */}
-          <InertiaLink href="/" className="font-bold text-lg">Blueprint App</InertiaLink>
+          <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
+            Blueprint App
+          </InertiaLink>
         </div>
         <div className="text-center">
-          {/* Ievietojas TextInput Bloku kodā, ievietojot <TextInput /> komponentu padodot projectName un setProjectName */}
           <TextInput
             onChange={(e) => setProjectName(e.target.value)}
-            className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#7c3aed] text-black font-semibold"
+            className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#06b6d4]"
             value={projectName || "Untitled Project"}
           />
         </div>
         <div className="flex items-center space-x-4">
-          <Toolbar
-            tool={tool}
-            setTool={setTool}
-            drawColor={drawColor}
-            setDrawColor={setDrawColor}
-            thickness={thickness}
-            setThickness={setThickness}
-          />
+          {/* Toolbar moved below */}
         </div>
-      </div>
-      <div className="absolute top-14 left-0 right-0 bottom-12 flex">
+      </motion.div>
+      <motion.div
+        className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40"
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+      >
+        <Toolbar
+          tool={tool}
+          setTool={setTool}
+          drawColor={drawColor}
+          setDrawColor={setDrawColor}
+          thickness={thickness}
+          setThickness={setThickness}
+        />
+      </motion.div>
+      <div className="absolute top-16 left-0 right-0 bottom-12 flex">
         <div className="flex-1 relative z-0">
           <Template {...templateProps} />
         </div>
-        <div className="w-80 z-30 border-l border-gray-800">
+        <motion.div
+          className="w-80 z-30 border-l border-[#334155] bg-[#071227]"
+          initial={{ x: 300 }}
+          animate={{ x: 0 }}
+          transition={{ duration: 0.4 }}
+        >
           <Sidepanel
             sidepanelMode={sidepanelMode}
             setSidepanelMode={setSidepanelMode}
@@ -434,41 +473,78 @@ export default function Editor({ projectId }) {
             selectedObject={selectedObject}
             updateSelectedProperty={updateSelectedProperty}
           />
-        </div>
+        </motion.div>
       </div>
-      {/* Layers Footer */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-gray-800 flex items-center px-4 border-t border-gray-700">
-        <div className="flex items-center space-x-2 overflow-x-auto flex-1">
-          {layers.map((layer) => (
-            <div key={layer.id} className="flex items-center">
-              <button
-                onClick={() => setActiveLayerId(layer.id)}
-                className={`px-2 py-2 rounded-sm whitespace-nowrap transition-colors ${
-                  activeLayerId === layer.id
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                }`}
+      <motion.div
+        className="fixed top-20 left-4 z-50"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4 }}
+      >
+        <motion.button
+          onClick={async () => {
+            const reply = await askAI("Give me tips for using the editor.");
+            alert(reply);
+          }}
+          className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
+          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+          whileTap={{ scale: 0.98 }}
+        >
+          AI Help
+        </motion.button>
+      </motion.div>
+      <motion.div
+        className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-[#1e293b] flex items-center px-6 border-t border-[#334155] shadow-md"
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <div className="flex items-center space-x-3 overflow-x-auto flex-1">
+          <AnimatePresence>
+            {layers.map((layer) => (
+              <motion.div
+                key={layer.id}
+                className="flex items-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
               >
-                {layer.name}
-              </button>
-              {layers.length > 1 && (
-                <button
-                  onClick={() => deleteLayer(layer.id)}
-                  className="ml-1 px-1 py-1 bg-red-500 text-xs rounded hover:bg-red-600"
+                <motion.button
+                  onClick={() => setActiveLayerId(layer.id)}
+                  className={`px-3 py-2 text-sm font-medium ${
+                    activeLayerId === layer.id
+                      ? 'bg-[#06b6d4] text-[#071021]'
+                      : 'bg-[#334155] text-[#f3f4f6] hover:bg-[#475569]'
+                  } shadow-md border border-[#334155]`}
+                  whileHover={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)' }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  X
-                </button>
-              )}
-            </div>
-          ))}
+                  {layer.name}
+                </motion.button>
+                {layers.length > 1 && (
+                  <motion.button
+                    onClick={() => deleteLayer(layer.id)}
+                    className="ml-2 px-2 py-1 bg-[#dc2626] text-[#f3f4f6] text-xs shadow-md border border-[#334155]"
+                    whileHover={{ boxShadow: '0 4px 12px rgba(220, 38, 38, 0.5)' }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    X
+                  </motion.button>
+                )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
-        <button
+        <motion.button
           onClick={addLayer}
-          className="px-4 py-2 bg-gray-500 rounded-md hover:bg-green-600 ml-2"
+          className="px-4 py-2 bg-[#06b6d4] text-[#071021] shadow-md border border-[#334155]"
+          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+          whileTap={{ scale: 0.98 }}
         >
           +
-        </button>
-      </div>
-    </div>
+        </motion.button>
+      </motion.div>
+    </motion.div>
   );
 }
