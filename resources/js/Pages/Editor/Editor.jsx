@@ -417,6 +417,17 @@ export default function Editor({ projectId }) {
               projectName={projectName}
               onSave={saveProject}
             />
+            <motion.button
+              onClick={async () => {
+                const reply = await askAI("Give me tips for using the editor.");
+                alert(reply);
+              }}
+              className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
+              whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+              whileTap={{ scale: 0.98 }}
+            >
+              AI Help
+            </motion.button>
             <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
               Blueprint App
             </InertiaLink>
@@ -478,24 +489,6 @@ export default function Editor({ projectId }) {
           />
         </motion.div>
       </div>
-      <motion.div
-        className="fixed top-20 left-4 z-50"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4 }}
-      >
-        <motion.button
-          onClick={async () => {
-            const reply = await askAI("Give me tips for using the editor.");
-            alert(reply);
-          }}
-          className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
-          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
-          whileTap={{ scale: 0.98 }}
-        >
-          AI Help
-        </motion.button>
-      </motion.div>
       <motion.div
         className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-[#1e293b] flex items-center px-6 border-t border-[#334155] shadow-md"
         initial={{ y: 100 }}

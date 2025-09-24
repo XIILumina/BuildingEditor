@@ -134,11 +134,13 @@ export default function Template({
         snaps.vertical.add(st.points[i]);
         snaps.horizontal.add(st.points[i + 1]);
       }
-      for (let i = 0; i < st.points.length - 2; i += 2) {
-        const midX = (st.points[i] + st.points[i + 2]) / 2;
-        const midY = (st.points[i + 1] + st.points[i + 3]) / 2;
-        snaps.vertical.add(midX);
-        snaps.horizontal.add(midY);
+      if (st.isWall) {
+        for (let i = 0; i < st.points.length - 2; i += 2) {
+          const midX = (st.points[i] + st.points[i + 2]) / 2;
+          const midY = (st.points[i + 1] + st.points[i + 3]) / 2;
+          snaps.vertical.add(midX);
+          snaps.horizontal.add(midY);
+        }
       }
     });
 
@@ -209,12 +211,12 @@ export default function Template({
     const className = node.getClassName();
 
     if (className === "Line") {
-      const absTransform = node.getAbsoluteTransform();
+      const relTransform = node.getTransform();
       const oldPoints = node.points();
       const newPoints = [];
       for (let i = 0; i < oldPoints.length; i += 2) {
         const local = { x: oldPoints[i], y: oldPoints[i + 1] };
-        const world = absTransform.point(local);
+        const world = relTransform.point(local);
         newPoints.push(world.x, world.y);
       }
       node.x(0);
@@ -244,12 +246,12 @@ export default function Template({
       const className = node.getClassName();
 
       if (className === "Line") {
-        const absTransform = node.getAbsoluteTransform();
+        const relTransform = node.getTransform();
         const oldPoints = node.points();
         const newPoints = [];
         for (let i = 0; i < oldPoints.length; i += 2) {
           const local = { x: oldPoints[i], y: oldPoints[i + 1] };
-          const world = absTransform.point(local);
+          const world = relTransform.point(local);
           newPoints.push(world.x, world.y);
         }
         node.x(0);
