@@ -29,18 +29,19 @@ export default function Template({
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
   const [guides, setGuides] = useState([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
+  const [currentStroke, setCurrentStroke] = useState(null);
 
   // -----------------------
   // Helpers
   // -----------------------
-  const getMousePos = (stage) => {
+  const getMousePos = (stage, forceSnap = false) => {
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
     const transform = stage.getAbsoluteTransform().copy();
     transform.invert();
     let point = transform.point(pointer);
 
-    if (snapToGrid && tool !== "freedraw") {
+    if (snapToGrid && (forceSnap || tool !== "freedraw")) {
       point.x = Math.round(point.x / gridSize) * gridSize;
       point.y = Math.round(point.y / gridSize) * gridSize;
     }
@@ -291,36 +292,6 @@ export default function Template({
     });
   };
 
-  const addStroke = (x, y, isWall = false, isEraser = false) => {
-    const newStroke = {
-      id: Date.now(),
-      points: [x, y],
-      x: 0,
-      y: 0,
-      layer_id: activeLayerId,
-      color: drawColor,
-      thickness,
-      isWall,
-      isEraser,
-      material
-    };
-    setStrokes((prev) => [...prev, newStroke]);
-  };
-
-  const updateLastStroke = (x, y) => {
-    setStrokes((prev) => {
-      const updated = [...prev];
-      const last = updated[updated.length - 1];
-      if (!last) return prev;
-      if (last.isWall) {
-        last.points = [last.points[0], last.points[1], x, y];
-      } else {
-        last.points = [...last.points, x, y];
-      }
-      return updated;
-    });
-  };
-
   // -----------------------
   // Events
   // -----------------------
@@ -333,7 +304,7 @@ export default function Template({
       return;
     }
 
-    const pos = getMousePos(stage);
+    let pos = getMousePos(stage);
     if (!pos) return;
 
     if (tool === "select" && !isDraggingNode && e.target === stage) {
@@ -343,8 +314,17 @@ export default function Template({
     }
 
     if (tool === "freedraw" || tool === "wall") {
+      if (snapToGrid) {
+        pos = getMousePos(stage, true);
+      }
+      setCurrentStroke({
+        points: [pos.x, pos.y],
+        color: drawColor,
+        thickness,
+        isWall: tool === "wall",
+        isEraser: false,
+      });
       setIsDrawing(true);
-      addStroke(pos.x, pos.y, tool === "wall", false);
     }
 
     if (tool === "eraser") {
@@ -356,7 +336,7 @@ export default function Template({
   const handleMouseMove = (e) => {
     const stage = stageRef.current;
     if (!stage) return;
-    const pos = getMousePos(stage);
+    let pos = getMousePos(stage);
     if (!pos) return;
 
     if (isPanning) {
@@ -369,7 +349,8 @@ export default function Template({
       return;
     }
 
-    if (isDrawing && (tool === "freedraw" || tool === "wall")) {
+    if (isDrawing && currentStroke && (tool === "freedraw" || tool === "wall")) {
+      let newPoints = [...currentStroke.points];
       if (tool === "wall") {
         const snaps = getSnapPositions();
         const threshold = 5;
@@ -406,10 +387,11 @@ export default function Template({
         }
 
         setGuides(newGuides);
-        updateLastStroke(snappedX, snappedY);
+        newPoints = [newPoints[0], newPoints[1], snappedX, snappedY];
       } else {
-        updateLastStroke(pos.x, pos.y);
+        newPoints = [...newPoints, pos.x, pos.y];
       }
+      setCurrentStroke({ ...currentStroke, points: newPoints });
       return;
     }
 
@@ -424,7 +406,41 @@ export default function Template({
 
   const handleMouseUp = () => {
     if (isPanning) setIsPanning(false);
-    if (isDrawing) setIsDrawing(false);
+    if (isDrawing) {
+      if (tool === "freedraw" || tool === "wall") {
+        let pos = getMousePos(stageRef.current);
+        if (pos && snapToGrid) {
+          const snappedX = Math.round(pos.x / gridSize) * gridSize;
+          const snappedY = Math.round(pos.y / gridSize) * gridSize;
+          setCurrentStroke(prev => {
+            let points = [...prev.points];
+            if (tool === "wall") {
+              points = [points[0], points[1], snappedX, snappedY];
+            } else {
+              points = [...points.slice(0, -2), snappedX, snappedY];
+            }
+            return { ...prev, points };
+          });
+        }
+        if (currentStroke && currentStroke.points.length >= 4) { // at least two points
+          const newStroke = {
+            id: Date.now(),
+            points: currentStroke.points,
+            x: 0,
+            y: 0,
+            layer_id: activeLayerId,
+            color: currentStroke.color,
+            thickness: currentStroke.thickness,
+            isWall: currentStroke.isWall,
+            isEraser: currentStroke.isEraser,
+            material
+          };
+          setStrokes((prev) => [...prev, newStroke]);
+        }
+        setCurrentStroke(null);
+      }
+      setIsDrawing(false);
+    }
     setGuides([]);
 
     if (selectionBox && tool === "select" && !isDraggingNode) {
@@ -479,9 +495,6 @@ export default function Template({
       }
       setSelectionBox(null);
     }
-
-    console.log("Autosaving project...");
-    onSave();
   };
 
   const renderGuides = () => {
@@ -620,7 +633,6 @@ export default function Template({
               }
               if (sh.type === "circle") {
                 return (
-                  /* definējam apļa lielumus, ja tas tiek izveidots, kā objekts.*/
                   <Circle
                     key={`bg-${sh.id}`}
                     x={sh.x}
@@ -702,6 +714,17 @@ export default function Template({
               }
               return null;
             })}
+          {currentStroke && (
+            <Line
+              points={currentStroke.points}
+              stroke={currentStroke.color}
+              strokeWidth={currentStroke.thickness}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.5}
+              listening={false}
+            />
+          )}
           {selectionBox && (
             <Rect
               x={Math.min(selectionBox.x, selectionBox.x + selectionBox.width)}

@@ -44,7 +44,7 @@ export default function Editor({ projectId }) {
   const [redoStack, setRedoStack] = useState([]);
   const [layers, setLayers] = useState([{ id: 1, name: "Layer 1" }]);
   const [activeLayerId, setActiveLayerId] = useState(1);
-  
+  const [saveState, setSaveState] = useState('saved'); // 'saved', 'unsaved', 'saving'
 
   const saveInProgress = useRef(false);
 
@@ -62,6 +62,7 @@ export default function Editor({ projectId }) {
   const pushHistory = useCallback((label) => {
     setHistory((h) => [...h, snapshot()]);
     setRedoStack([]);
+    setSaveState('unsaved');
   }, [snapshot]);
 
   const updateStrokes = (newStrokes) => {
@@ -100,10 +101,11 @@ export default function Editor({ projectId }) {
       });
   }, [projectId]);
 
-  const saveProject = async () => {
+  const saveProject = useCallback(async () => {
     if (!projectId) return;
     if (saveInProgress.current) return;
     saveInProgress.current = true;
+    setSaveState('saving');
     try {
       await axios.post(`/projects/${projectId}/save`, {
         data: {
@@ -119,13 +121,34 @@ export default function Editor({ projectId }) {
           layers,
         },
       });
+      setSaveState('saved');
     } catch (err) {
       console.error("Save failed:", err);
       alert("Save failed.");
+      setSaveState('unsaved');
     } finally {
       saveInProgress.current = false;
     }
-  };
+  }, [projectId, strokes, erasers, shapes, gridSize, units, drawColor, thickness, material, projectName, layers]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (saveState === 'unsaved') {
+        saveProject();
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [saveState, saveProject]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (saveState !== 'saved') {
+        saveProject();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [saveState, saveProject]);
 
   const addLayer = async () => {
     try {
@@ -133,11 +156,13 @@ export default function Editor({ projectId }) {
       const newLayer = res.data?.layer ?? { id: Date.now(), name: `Layer ${layers.length + 1}` };
       setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
+      setSaveState('unsaved');
     } catch (err) {
       console.error("Failed to create layer:", err);
       const newLayer = { id: Date.now(), name: `Layer ${layers.length + 1}` };
       setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
+      setSaveState('unsaved');
     }
   };
 
@@ -150,6 +175,7 @@ export default function Editor({ projectId }) {
     setStrokes(prev => prev.filter(s => s.layer_id !== layerId));
     setShapes(prev => prev.filter(sh => sh.layer_id !== layerId));
     setErasers(prev => prev.filter(e => e.layer_id !== layerId));
+    setSaveState('unsaved');
   }, [layers]);
 
   const snapToGrid = (val) => {
@@ -245,7 +271,7 @@ export default function Editor({ projectId }) {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        console.log("Autosaving project...");
+        console.log("Saving project...");
         saveProject();
         return;
       }
@@ -367,6 +393,11 @@ export default function Editor({ projectId }) {
     setShapes(newShapes);
   };
 
+  const handleProjectNameChange = (e) => {
+    setProjectName(e.target.value);
+    setSaveState('unsaved');
+  };
+
   const templateProps = {
     tool,
     strokes,
@@ -386,7 +417,7 @@ export default function Editor({ projectId }) {
     activeLayerId,
     setActiveLayerId,
     snapToGrid: true,
-    onSave: saveProject
+    onSave: () => {} // No autosave on actions
   };
 
   return (
@@ -432,12 +463,15 @@ export default function Editor({ projectId }) {
               Blueprint App
             </InertiaLink>
           </div>
-          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
+          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center space-x-2">
             <TextInput
-              onChange={(e) => setProjectName(e.target.value)}
+              onChange={handleProjectNameChange}
               className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#06b6d4]"
               value={projectName || "Untitled Project"}
             />
+            <span className="text-xl">
+              {saveState === 'saved' ? '✅' : saveState === 'saving' ? '⏳' : '💾'}
+            </span>
           </div>
           <div className="flex items-center space-x-4 ml-auto">
             {/* right content */}
