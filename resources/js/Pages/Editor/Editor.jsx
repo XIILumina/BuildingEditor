@@ -11,14 +11,14 @@ import TextInput from '@/Components/TextInput';
 let aiRequestInProgress = false;
 
 const askAI = async (prompt) => {
-  if (aiRequestInProgress) return;
+  if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
   aiRequestInProgress = true;
   try {
     const res = await axios.post('/openai/chat', { prompt });
-    return res.data.reply;
+    return { success: true, data: res.data.reply };
   } catch (err) {
     console.error("OpenAI error:", err);
-    alert("AI request failed.");
+    return { success: false, data: "AI request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
   }
@@ -45,6 +45,9 @@ export default function Editor({ projectId }) {
   const [layers, setLayers] = useState([{ id: 1, name: "Layer 1" }]);
   const [activeLayerId, setActiveLayerId] = useState(1);
   const [saveState, setSaveState] = useState('saved'); // 'saved', 'unsaved', 'saving'
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const chatContainerRef = useRef(null);
 
   const saveInProgress = useRef(false);
 
@@ -231,7 +234,6 @@ export default function Editor({ projectId }) {
     if (tool !== "select") {
       setSelectedId(null);
     }
-    // Set eraser thickness to 40 when selected
     if (tool === "eraser") {
       setThickness(40);
     }
@@ -398,6 +400,24 @@ export default function Editor({ projectId }) {
     setSaveState('unsaved');
   };
 
+  const handleAIPromptSubmit = async (e) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+    const userMessage = { role: 'user', content: aiPrompt, id: Date.now() };
+    setAiMessages(prev => [...prev, userMessage]);
+    setAiPrompt("");
+    const result = await askAI(aiPrompt);
+    const aiMessage = { 
+      role: 'assistant', 
+      content: result.success ? result.data : `Error: ${result.data}`, 
+      id: Date.now() + 1 
+    };
+    setAiMessages(prev => [...prev, aiMessage]);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+
   const templateProps = {
     tool,
     strokes,
@@ -449,15 +469,12 @@ export default function Editor({ projectId }) {
               onSave={saveProject}
             />
             <motion.button
-              onClick={async () => {
-                const reply = await askAI("Give me tips for using the editor.");
-                alert(reply);
-              }}
+              onClick={() => setSidepanelMode("ai-chat")}
               className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
               whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
               whileTap={{ scale: 0.98 }}
             >
-              AI Help
+              AI Chat
             </motion.button>
             <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
               Blueprint App
@@ -478,12 +495,12 @@ export default function Editor({ projectId }) {
           </div>
         </div>
       </motion.div>
-<motion.div
-  className="fixed top-20 left-1/3 transform -translate-x-1/2 z-40"
-  initial={{ y: -20, opacity: 0 }}
-  animate={{ y: 0, opacity: 1 }}
-  transition={{ duration: 0.4, delay: 0.2 }}
->
+      <motion.div
+        className="fixed top-20 left-1/3 transform -translate-x-1/2 z-40"
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+      >
         <Toolbar
           tool={tool}
           setTool={setTool}
@@ -520,6 +537,11 @@ export default function Editor({ projectId }) {
             addShape={addShape}
             selectedObject={selectedObject}
             updateSelectedProperty={updateSelectedProperty}
+            aiMessages={aiMessages}
+            aiPrompt={aiPrompt}
+            setAiPrompt={setAiPrompt}
+            handleAIPromptSubmit={handleAIPromptSubmit}
+            chatContainerRef={chatContainerRef}
           />
         </motion.div>
       </div>
