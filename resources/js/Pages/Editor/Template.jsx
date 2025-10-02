@@ -30,9 +30,7 @@ export default function Template({
   const [guides, setGuides] = useState([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
-    const [aiMessages, setAiMessages] = useState([]);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const chatContainerRef = useRef(null);
+  
 
   // -----------------------
   // Helpers

@@ -400,23 +400,28 @@ export default function Editor({ projectId }) {
     setSaveState('unsaved');
   };
 
-  const handleAIPromptSubmit = async (e) => {
-    e.preventDefault();
-    if (!aiPrompt.trim()) return;
-    const userMessage = { role: 'user', content: aiPrompt, id: Date.now() };
-    setAiMessages(prev => [...prev, userMessage]);
+  const handleAIPromptSubmit = useCallback(async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!aiPrompt.trim() || aiRequestInProgress) return;
+    const userMessage = { id: Date.now(), role: 'user', content: aiPrompt };
+    setAiMessages((prev) => [...prev, userMessage]);
     setAiPrompt("");
-    const result = await askAI(aiPrompt);
-    const aiMessage = { 
-      role: 'assistant', 
-      content: result.success ? result.data : `Error: ${result.data}`, 
-      id: Date.now() + 1 
-    };
-    setAiMessages(prev => [...prev, aiMessage]);
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    try {
+      const result = await askAI(aiPrompt);
+      const aiMessage = { id: Date.now() + 1, role: 'assistant', content: result.success ? result.data : `Error: ${result.data}` };
+      setAiMessages((prev) => [...prev, aiMessage]);
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    } catch (err) {
+      const errorMessage = { id: Date.now() + 1, role: 'assistant', content: 'Error: Could not get response from AI.' };
+      setAiMessages((prev) => [...prev, errorMessage]);
     }
-  };
+  }, [aiPrompt]);
+    const clearAiMessages = useCallback(() => {
+    setAiMessages([]);
+  }, []);
+
 
   const templateProps = {
     tool,
@@ -520,29 +525,30 @@ export default function Editor({ projectId }) {
           animate={{ x: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Sidepanel
-            sidepanelMode={sidepanelMode}
-            setSidepanelMode={setSidepanelMode}
-            projectId={projectId}
-            thickness={thickness}
-            setThickness={setThickness}
-            material={material}
-            setMaterial={setMaterial}
-            gridSize={gridSize}
-            setGridSize={setGridSize}
-            units={units}
-            setUnits={setUnits}
-            drawColor={drawColor}
-            setDrawColor={setDrawColor}
-            addShape={addShape}
-            selectedObject={selectedObject}
-            updateSelectedProperty={updateSelectedProperty}
-            aiMessages={aiMessages}
-            aiPrompt={aiPrompt}
-            setAiPrompt={setAiPrompt}
-            handleAIPromptSubmit={handleAIPromptSubmit}
-            chatContainerRef={chatContainerRef}
-          />
+        <Sidepanel
+          sidepanelMode={sidepanelMode}
+          setSidepanelMode={setSidepanelMode}
+          thickness={thickness}
+          setThickness={setThickness}
+          material={material}
+          setMaterial={setMaterial}
+          gridSize={gridSize}
+          setGridSize={setGridSize}
+          units={units}
+          setUnits={setUnits}
+          drawColor={drawColor}
+          setDrawColor={setDrawColor}
+          addShape={addShape}
+          selectedObject={selectedObject}
+          updateSelectedProperty={updateSelectedProperty}
+          aiMessages={aiMessages}
+          aiRequestInProgress={aiRequestInProgress}
+          aiPrompt={aiPrompt}
+          setAiPrompt={setAiPrompt}
+          handleAIPromptSubmit={handleAIPromptSubmit}
+          chatContainerRef={chatContainerRef}
+          clearAiMessages={clearAiMessages}
+        />
         </motion.div>
       </div>
       <motion.div
