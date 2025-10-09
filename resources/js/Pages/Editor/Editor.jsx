@@ -432,6 +432,7 @@ export default function Editor({ projectId }) {
     shapes,
     setShapes: onShapesChange,
     drawColor,
+    setDrawColor,
     thickness,
     gridSize,
     material,

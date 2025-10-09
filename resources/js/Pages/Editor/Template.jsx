@@ -1,6 +1,17 @@
 // Template.jsx
 import React, { useRef, useState, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
+import { Stage, Layer, Line, Rect, Transformer, Circle, Path } from "react-konva";
+import { detectRooms, isPointInPolygon, pointsEqual } from './utils/drawingUtils'; // New import
+
+function pointsToPath(points) {
+  if (!points || points.length < 2) return "";
+  let path = `M${points[0]} ${points[1]}`;
+  for (let i = 2; i < points.length; i += 2) {
+    path += ` L${points[i]} ${points[i + 1]}`;
+  }
+  path += " Z"; // Close the path
+  return path;
+}
 
 export default function Template({
   tool = "select",
@@ -10,6 +21,7 @@ export default function Template({
   setErasers,
   shapes = [],
   setShapes,
+  setDrawColor,
   drawColor = "#ffffff",
   thickness = 6,
   gridSize = 20,
@@ -48,6 +60,7 @@ export default function Template({
     }
     return point;
   };
+
 
   const distToSegment = (px, py, ax, ay, bx, by) => {
     const dx = bx - ax;
@@ -106,6 +119,8 @@ export default function Template({
       setSelectedId(null); // Unselect if erased
     }
   };
+  
+
 
   const getSnapPositions = () => {
     const snaps = { vertical: new Set(), horizontal: new Set() };
@@ -313,6 +328,43 @@ export default function Template({
       setSelectedId(null);
       return;
     }
+    if (tool === "fill") {
+    const pos = getMousePos(stage);
+    if (!pos) return;
+
+    const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
+    const { rooms } = detectRooms(walls);
+
+    const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
+      if (containingRoom) {
+      // Create filled polygon shape
+      const newShape = {
+        id: Date.now(),
+        type: "polygon", // New type
+        points: containingRoom.flat(), // Flatten [ [x1,y1], [x2,y2] ] to [x1,y1,x2,y2]
+        fill: drawColor,
+        closed: true,
+        layer_id: activeLayerId,
+      };
+      setShapes((prev) => [...prev, newShape]);
+
+    }
+    return;
+  }
+  if (tool === "picker") {
+    const pos = getMousePos(stage);
+    if (!pos) return;
+
+    const node = stage.getIntersection(pos);
+    if (node) {
+      const color = node.fill() || node.stroke() || "#ffffff";
+      // Assuming parent component handles setDrawColor, but for now log or pass up
+      console.log("Picked color:", color); // Integrate with setDrawColor in Editor
+      setDrawColor(color);
+    }
+    return;
+  }
+  
 
     if (tool === "freedraw" || tool === "wall") {
       if (snapToGrid) {
@@ -715,6 +767,26 @@ export default function Template({
               }
               return null;
             })}
+            {shapes
+              .filter((sh) => sh.layer_id === activeLayerId)
+              .map((sh) => {
+                if (sh.type === "polygon") {
+                  return (
+                  <Path
+                    key={sh.id}
+                    id={sh.id.toString()}
+                    data={pointsToPath(sh.points)}
+                    fill={sh.fill}
+                    draggable={tool === "select"}
+                    onClick={() => handleSelectObject(sh.id)}
+                    onDragStart={handleDragStart}
+                    onDragMove={handleDragMove}
+                    onDragEnd={handleDragEnd}
+                  />
+                  );
+                }
+                return null;
+              })}
           {currentStroke && (
             <Line
               points={currentStroke.points}

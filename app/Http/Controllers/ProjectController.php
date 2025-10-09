@@ -249,7 +249,7 @@ class ProjectController extends Controller
             'order' => $order,
         ]);
 
-        return response()->json(['layer' => $layer]);
+        return response()->json(['layer' => $layer]);   
     }
    public function exportPNG($id)
     {

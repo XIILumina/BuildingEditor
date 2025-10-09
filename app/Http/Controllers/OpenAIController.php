@@ -11,17 +11,18 @@ class OpenAIController extends Controller
     {
         $client = OpenAI::client(env('OPENAI_API_KEY'));
 
-        // Split the prompt into 300-character chunks
+        // Split the prompt into 500-character chunks
         $prompt = $request->input('prompt');
-        $promptBlocks = str_split($prompt, 300);
+        $promptBlocks = str_split($prompt, 500);
 
         // Build the messages array
         $messages = [
             [
                 'role' => 'system',
-                'content' => 'You are a helpful assistant. You help users with their building editor tasks, they might give you instructions like "create a red rectangle" or "add a new layer" or "make the circle bigger". Keep your answers short and to the point. Also they can give you code blocks with JSON data, you should make suggestions and improvements to that data if they ask for it. Pretty please :), and be silly sometimes. Also they might send you the json code in smaller packages for you to analyse, if possible combine them together and analyse as they are one whole. If they ask for code, give it to them in a code block with the language specified as json. Do not make up any new features, only work with what you know is already implemented.'
+                'content' => 'You are GPT Assistant'
             ]
         ];
+        //
 
         // Add each prompt block as a user message
         foreach ($promptBlocks as $block) {
