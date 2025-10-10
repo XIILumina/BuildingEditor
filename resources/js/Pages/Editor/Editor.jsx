@@ -7,6 +7,7 @@ import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
 import TextInput from '@/Components/TextInput';
+import { detectRooms } from './utils/drawingUtils'; // Import for room validation
 
 let aiRequestInProgress = false;
 
@@ -19,6 +20,23 @@ const askAI = async (prompt) => {
   } catch (err) {
     console.error("OpenAI error:", err);
     return { success: false, data: "AI request failed: " + err.message };
+  } finally {
+    aiRequestInProgress = false;
+  }
+};
+
+const askAIDraw = async (prompt, projectData) => {
+  if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
+  aiRequestInProgress = true;
+  try {
+    const res = await axios.post('/openai/aidrawsuggestion', {
+      prompt,
+      projectData: JSON.stringify(projectData),
+    });
+    return res.data;
+  } catch (err) {
+    console.error("OpenAI draw error:", err);
+    return { success: false, data: "AI draw request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
   }
@@ -39,12 +57,14 @@ export default function Editor({ projectId }) {
   const [strokes, setStrokes] = useState([]);
   const [erasers, setErasers] = useState([]);
   const [shapes, setShapes] = useState([]);
+  const [previewStrokes, setPreviewStrokes] = useState([]); // New state for preview
+  const [previewShapes, setPreviewShapes] = useState([]); // New state for preview
   const [selectedId, setSelectedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [layers, setLayers] = useState([{ id: 1, name: "Layer 1" }]);
   const [activeLayerId, setActiveLayerId] = useState(1);
-  const [saveState, setSaveState] = useState('saved'); // 'saved', 'unsaved', 'saving'
+  const [saveState, setSaveState] = useState('saved');
   const [aiMessages, setAiMessages] = useState([]);
   const [aiPrompt, setAiPrompt] = useState("");
   const chatContainerRef = useRef(null);
@@ -77,6 +97,74 @@ export default function Editor({ projectId }) {
   const updateShapes = (newShapes) => {
     setShapes(newShapes);
   };
+
+const confirmPreview = useCallback(() => {
+    pushHistory("confirm-ai-draw");
+
+    // Validate and map preview strokes
+    const validatedStrokes = previewStrokes
+        .filter(stroke => {
+            const isValid = stroke &&
+                typeof stroke.id === 'number' &&
+                Array.isArray(stroke.points) &&
+                typeof stroke.color === 'string' &&
+                typeof stroke.thickness === 'number' &&
+                typeof stroke.isWall === 'boolean' &&
+                typeof stroke.layer_id === 'number' &&
+                typeof stroke.material === 'string';
+            if (!isValid) {
+                console.warn('Invalid stroke:', stroke);
+            }
+            return isValid;
+        })
+        .map(stroke => ({
+            ...stroke,
+            id: Date.now() + Math.random(), // Ensure unique ID
+            layer_id: activeLayerId // Ensure layer_id is set
+        }));
+
+   const validatedShapes = previewShapes
+        .filter(shape => {
+            const isValid = shape &&
+                typeof shape.id === 'number' &&
+                typeof shape.type === 'string' &&
+                ['rect', 'circle', 'polygon'].includes(shape.type) &&
+                typeof shape.color === 'string' &&
+                typeof shape.rotation === 'number' &&
+                typeof shape.layer_id === 'number' &&
+                (shape.type === 'rect' ? 
+                    (typeof shape.x === 'number' && 
+                     typeof shape.y === 'number' && 
+                     typeof shape.width === 'number' && 
+                     typeof shape.height === 'number') :
+                 shape.type === 'circle' ? 
+                    (typeof shape.x === 'number' && 
+                     typeof shape.y === 'number' && 
+                     typeof shape.radius === 'number') :
+                    (Array.isArray(shape.points) && 
+                     typeof shape.fill === 'string' && 
+                     typeof shape.closed === 'boolean'));
+            if (!isValid) {
+                console.warn('Invalid shape:', shape);
+            }
+            return isValid;
+        })
+        .map(shape => ({
+            ...shape,
+            id: Date.now() + Math.random(), // Ensure unique ID
+            layer_id: activeLayerId // Ensure layer_id is set
+        }));
+            setStrokes(prev => [...prev, ...validatedStrokes]);
+            setShapes(prev => [...prev, ...validatedShapes]);
+            setPreviewStrokes([]);
+            setPreviewShapes([]);
+            setSaveState('unsaved');
+}, [previewStrokes, previewShapes, pushHistory, activeLayerId]);
+
+  const clearPreview = useCallback(() => {
+    setPreviewStrokes([]);
+    setPreviewShapes([]);
+  }, []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -185,10 +273,16 @@ export default function Editor({ projectId }) {
     return Math.round(val / gridSize) * gridSize;
   };
 
-  const selectedObject = useMemo(() => {
-    if (!selectedId || Array.isArray(selectedId)) return null;
-    return strokes.find(s => s.id === selectedId) || shapes.find(sh => sh.id === selectedId);
-  }, [selectedId, strokes, shapes]);
+const selectedObject = useMemo(() => {
+    if (!selectedId || Array.isArray(selectedId)) {
+        return null;
+    }
+    const selectedStroke = strokes.find(stroke => stroke.id === selectedId);
+    const selectedShape = shapes.find(shape => shape.id === selectedId);
+    const result = selectedStroke || selectedShape || null;
+    return result;
+}, [selectedId, strokes, shapes]);
+
 
   const updateSelectedProperty = useCallback((property, value) => {
     if (!selectedId || Array.isArray(selectedId)) return;
@@ -229,6 +323,65 @@ export default function Editor({ projectId }) {
     setErasers((e) => e.filter((x) => !ids.includes(e.id)));
     setSelectedId(null);
   }, [selectedId, pushHistory]);
+
+  const handleAIPromptSubmit = useCallback(async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!aiPrompt.trim() || aiRequestInProgress) return;
+    const userMessage = { id: Date.now(), role: 'user', content: aiPrompt };
+    setAiMessages((prev) => [...prev, userMessage]);
+    setAiPrompt("");
+
+    // Check if the prompt is a draw request (e.g., contains "draw", "add", "create")
+    const drawKeywords = ['draw', 'add', 'create', 'place', 'room', 'wall', 'shape', 'furniture'];
+    const isDrawRequest = drawKeywords.some(keyword => aiPrompt.toLowerCase().includes(keyword));
+
+    try {
+      if (isDrawRequest) {
+        const projectData = { strokes, shapes, layers, activeLayerId };
+        const result = await askAIDraw(aiPrompt, projectData);
+        if (result.success) {
+          setPreviewStrokes(result.data.strokes || []);
+          setPreviewShapes(result.data.shapes || []);
+          const aiMessage = {
+            id: Date.now() + 1,
+            role: 'assistant',
+            content: 'Generated drawing preview. Click "Confirm Save" to add to project, or "Clear Preview" to discard.',
+          };
+          setAiMessages((prev) => [...prev, aiMessage]);
+        } else {
+          const errorMessage = {
+            id: Date.now() + 1,
+            role: 'assistant',
+            content: `Error: ${result.error || result.data}`,
+          };
+          setAiMessages((prev) => [...prev, errorMessage]);
+        }
+      } else {
+        const result = await askAI(aiPrompt);
+        const aiMessage = {
+          id: Date.now() + 1,
+          role: 'assistant',
+          content: result.success ? result.data : `Error: ${result.data}`,
+        };
+        setAiMessages((prev) => [...prev, aiMessage]);
+      }
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    } catch (err) {
+      const errorMessage = {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: 'Error: Could not get response from AI.',
+      };
+      setAiMessages((prev) => [...prev, errorMessage]);
+    }
+  }, [aiPrompt, strokes, shapes, layers, activeLayerId]);
+
+  const clearAiMessages = useCallback(() => {
+    setAiMessages([]);
+    clearPreview();
+  }, [clearPreview]);
 
   useEffect(() => {
     if (tool !== "select") {
@@ -400,29 +553,6 @@ export default function Editor({ projectId }) {
     setSaveState('unsaved');
   };
 
-  const handleAIPromptSubmit = useCallback(async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!aiPrompt.trim() || aiRequestInProgress) return;
-    const userMessage = { id: Date.now(), role: 'user', content: aiPrompt };
-    setAiMessages((prev) => [...prev, userMessage]);
-    setAiPrompt("");
-    try {
-      const result = await askAI(aiPrompt);
-      const aiMessage = { id: Date.now() + 1, role: 'assistant', content: result.success ? result.data : `Error: ${result.data}` };
-      setAiMessages((prev) => [...prev, aiMessage]);
-      if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      }
-    } catch (err) {
-      const errorMessage = { id: Date.now() + 1, role: 'assistant', content: 'Error: Could not get response from AI.' };
-      setAiMessages((prev) => [...prev, errorMessage]);
-    }
-  }, [aiPrompt]);
-    const clearAiMessages = useCallback(() => {
-    setAiMessages([]);
-  }, []);
-
-
   const templateProps = {
     tool,
     strokes,
@@ -443,7 +573,9 @@ export default function Editor({ projectId }) {
     activeLayerId,
     setActiveLayerId,
     snapToGrid: true,
-    onSave: () => {} // No autosave on actions
+    onSave: () => {},
+    previewStrokes, // Pass preview data
+    previewShapes,
   };
 
   return (
@@ -497,7 +629,26 @@ export default function Editor({ projectId }) {
             </span>
           </div>
           <div className="flex items-center space-x-4 ml-auto">
-            {/* right content */}
+            {(previewStrokes.length > 0 || previewShapes.length > 0) && (
+              <>
+                <motion.button
+                  onClick={confirmPreview}
+                  className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Confirm Save
+                </motion.button>
+                <motion.button
+                  onClick={clearPreview}
+                  className="bg-[#dc2626] text-[#f3f4f6] text-sm px-4 py-2 shadow-md border border-[#334155]"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(220, 38, 38, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Clear Preview
+                </motion.button>
+              </>
+            )}
           </div>
         </div>
       </motion.div>
@@ -526,30 +677,30 @@ export default function Editor({ projectId }) {
           animate={{ x: 0 }}
           transition={{ duration: 0.4 }}
         >
-        <Sidepanel
-          sidepanelMode={sidepanelMode}
-          setSidepanelMode={setSidepanelMode}
-          thickness={thickness}
-          setThickness={setThickness}
-          material={material}
-          setMaterial={setMaterial}
-          gridSize={gridSize}
-          setGridSize={setGridSize}
-          units={units}
-          setUnits={setUnits}
-          drawColor={drawColor}
-          setDrawColor={setDrawColor}
-          addShape={addShape}
-          selectedObject={selectedObject}
-          updateSelectedProperty={updateSelectedProperty}
-          aiMessages={aiMessages}
-          aiRequestInProgress={aiRequestInProgress}
-          aiPrompt={aiPrompt}
-          setAiPrompt={setAiPrompt}
-          handleAIPromptSubmit={handleAIPromptSubmit}
-          chatContainerRef={chatContainerRef}
-          clearAiMessages={clearAiMessages}
-        />
+          <Sidepanel
+            sidepanelMode={sidepanelMode}
+            setSidepanelMode={setSidepanelMode}
+            thickness={thickness}
+            setThickness={setThickness}
+            material={material}
+            setMaterial={setMaterial}
+            gridSize={gridSize}
+            setGridSize={setGridSize}
+            units={units}
+            setUnits={setUnits}
+            drawColor={drawColor}
+            setDrawColor={setDrawColor}
+            addShape={addShape}
+            selectedObject={selectedObject}
+            updateSelectedProperty={updateSelectedProperty}
+            aiMessages={aiMessages}
+            aiRequestInProgress={aiRequestInProgress}
+            aiPrompt={aiPrompt}
+            setAiPrompt={setAiPrompt}
+            handleAIPromptSubmit={handleAIPromptSubmit}
+            chatContainerRef={chatContainerRef}
+            clearAiMessages={clearAiMessages}
+          />
         </motion.div>
       </div>
       <motion.div

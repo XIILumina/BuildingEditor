@@ -36,6 +36,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/edit', [EditController::class, 'index'])->name('edit.index');
 
     Route::post('/openai/chat', [OpenAIController::class, 'chat']);
+    Route::post('/openai/promptblock', [OpenAIController::class, 'promptblock']);
+    Route::post('/openai/aidrawsuggestion', [OpenAIController::class, 'AiDrawSuggestion']);
     
 Route::middleware(['auth'])->group(function () {
     Route::get('/projects', [ProjectController::class, 'index']);

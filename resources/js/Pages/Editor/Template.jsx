@@ -1,7 +1,6 @@
-// Template.jsx
 import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer, Circle, Path } from "react-konva";
-import { detectRooms, isPointInPolygon, pointsEqual } from './utils/drawingUtils'; // New import
+import { detectRooms, isPointInPolygon, pointsEqual } from './utils/drawingUtils';
 
 function pointsToPath(points) {
   if (!points || points.length < 2) return "";
@@ -9,7 +8,7 @@ function pointsToPath(points) {
   for (let i = 2; i < points.length; i += 2) {
     path += ` L${points[i]} ${points[i + 1]}`;
   }
-  path += " Z"; // Close the path
+  path += " Z";
   return path;
 }
 
@@ -31,7 +30,9 @@ export default function Template({
   layers = [],
   activeLayerId = 1,
   snapToGrid = true,
-  onSave = () => {}
+  onSave = () => {},
+  previewStrokes = [], // New prop
+  previewShapes = [], // New prop
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
@@ -42,7 +43,6 @@ export default function Template({
   const [guides, setGuides] = useState([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
-  
 
   // -----------------------
   // Helpers
@@ -60,7 +60,6 @@ export default function Template({
     }
     return point;
   };
-
 
   const distToSegment = (px, py, ax, ay, bx, by) => {
     const dx = bx - ax;
@@ -94,17 +93,19 @@ export default function Template({
 
     if (hitStrokeIds.length > 0) {
       setStrokes((prev) => prev.filter((st) => !hitStrokeIds.includes(st.id)));
-      setSelectedId(null); // Unselect if erased
+      setSelectedId(null);
     }
 
     const hitShapeIds = shapes
       .filter((sh) => sh.layer_id === activeLayerId)
       .filter((sh) => {
         if (sh.type === "rect") {
-          return world.x >= sh.x &&
-                 world.x <= sh.x + (sh.width || 0) &&
-                 world.y >= sh.y &&
-                 world.y <= sh.y + (sh.height || 0);
+          return (
+            world.x >= sh.x &&
+            world.x <= sh.x + (sh.width || 0) &&
+            world.y >= sh.y &&
+            world.y <= sh.y + (sh.height || 0)
+          );
         } else if (sh.type === "circle") {
           const dx = world.x - sh.x;
           const dy = world.y - sh.y;
@@ -116,11 +117,9 @@ export default function Template({
 
     if (hitShapeIds.length > 0) {
       setShapes((prev) => prev.filter((sh) => !hitShapeIds.includes(sh.id)));
-      setSelectedId(null); // Unselect if erased
+      setSelectedId(null);
     }
   };
-  
-
 
   const getSnapPositions = () => {
     const snaps = { vertical: new Set(), horizontal: new Set() };
@@ -297,6 +296,22 @@ export default function Template({
               newSh.height = (node.height() || 60) * node.scaleY();
             } else if (sh.type === "circle") {
               newSh.radius = (node.radius() || 40) * node.scaleX();
+            } else if (sh.type === "polygon") {
+              // Update points for polygon
+              const relTransform = node.getTransform();
+              const oldPoints = sh.points;
+              const newPoints = [];
+              for (let i = 0; i < oldPoints.length; i += 2) {
+                const local = { x: oldPoints[i], y: oldPoints[i + 1] };
+                const world = relTransform.point(local);
+                newPoints.push(world.x, world.y);
+              }
+              newSh.points = newPoints;
+              node.x(0);
+              node.y(0);
+              node.scaleX(1);
+              node.scaleY(1);
+              node.rotation(0);
             }
             node.scaleX(1);
             node.scaleY(1);
@@ -328,43 +343,40 @@ export default function Template({
       setSelectedId(null);
       return;
     }
+
     if (tool === "fill") {
-    const pos = getMousePos(stage);
-    if (!pos) return;
+      const pos = getMousePos(stage);
+      if (!pos) return;
 
-    const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
-    const { rooms } = detectRooms(walls);
+      const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
+      const { rooms } = detectRooms(walls);
 
-    const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
+      const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
       if (containingRoom) {
-      // Create filled polygon shape
-      const newShape = {
-        id: Date.now(),
-        type: "polygon", // New type
-        points: containingRoom.flat(), // Flatten [ [x1,y1], [x2,y2] ] to [x1,y1,x2,y2]
-        fill: drawColor,
-        closed: true,
-        layer_id: activeLayerId,
-      };
-      setShapes((prev) => [...prev, newShape]);
-
+        const newShape = {
+          id: Date.now(),
+          type: "polygon",
+          points: containingRoom.flat(),
+          fill: drawColor,
+          closed: true,
+          layer_id: activeLayerId,
+        };
+        setShapes((prev) => [...prev, newShape]);
+      }
+      return;
     }
-    return;
-  }
-  if (tool === "picker") {
-    const pos = getMousePos(stage);
-    if (!pos) return;
 
-    const node = stage.getIntersection(pos);
-    if (node) {
-      const color = node.fill() || node.stroke() || "#ffffff";
-      // Assuming parent component handles setDrawColor, but for now log or pass up
-      console.log("Picked color:", color); // Integrate with setDrawColor in Editor
-      setDrawColor(color);
+    if (tool === "picker") {
+      const pos = getMousePos(stage);
+      if (!pos) return;
+
+      const node = stage.getIntersection(pos);
+      if (node) {
+        const color = node.fill() || node.stroke() || "#ffffff";
+        setDrawColor(color);
+      }
+      return;
     }
-    return;
-  }
-  
 
     if (tool === "freedraw" || tool === "wall") {
       if (snapToGrid) {
@@ -452,7 +464,7 @@ export default function Template({
       setSelectionBox({
         ...selectionBox,
         width: pos.x - selectionBox.x,
-        height: pos.y - selectionBox.y
+        height: pos.y - selectionBox.y,
       });
     }
   };
@@ -465,7 +477,7 @@ export default function Template({
         if (pos && snapToGrid) {
           const snappedX = Math.round(pos.x / gridSize) * gridSize;
           const snappedY = Math.round(pos.y / gridSize) * gridSize;
-          setCurrentStroke(prev => {
+          setCurrentStroke((prev) => {
             let points = [...prev.points];
             if (tool === "wall") {
               points = [points[0], points[1], snappedX, snappedY];
@@ -475,7 +487,7 @@ export default function Template({
             return { ...prev, points };
           });
         }
-        if (currentStroke && currentStroke.points.length >= 4) { // at least two points
+        if (currentStroke && currentStroke.points.length >= 4) {
           const newStroke = {
             id: Date.now(),
             points: currentStroke.points,
@@ -486,7 +498,7 @@ export default function Template({
             thickness: currentStroke.thickness,
             isWall: currentStroke.isWall,
             isEraser: currentStroke.isEraser,
-            material
+            material,
           };
           setStrokes((prev) => [...prev, newStroke]);
         }
@@ -553,10 +565,26 @@ export default function Template({
   const renderGuides = () => {
     const range = 2000;
     return guides.map((guide, i) => {
-      if (guide.orientation === 'V') {
-        return <Line key={i} points={[guide.position, -range, guide.position, range]} stroke="#0ea5a7" strokeWidth={1} dash={[4, 4]} />;
+      if (guide.orientation === "V") {
+        return (
+          <Line
+            key={i}
+            points={[guide.position, -range, guide.position, range]}
+            stroke="#0ea5a7"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        );
       } else {
-        return <Line key={i} points={[-range, guide.position, range, guide.position]} stroke="#0ea5a7" strokeWidth={1} dash={[4, 4]} />;
+        return (
+          <Line
+            key={i}
+            points={[-range, guide.position, range, guide.position]}
+            stroke="#0ea5a7"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        );
       }
     });
   };
@@ -571,7 +599,7 @@ export default function Template({
     const pointer = stage.getPointerPosition();
     const mousePoint = {
       x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale
+      y: (pointer.y - stage.y()) / oldScale,
     };
 
     const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
@@ -579,7 +607,7 @@ export default function Template({
 
     const newPos = {
       x: pointer.x - mousePoint.x * clamped,
-      y: pointer.y - mousePoint.y * clamped
+      y: pointer.y - mousePoint.y * clamped,
     };
 
     setCamera({ x: newPos.x, y: newPos.y, scale: clamped });
@@ -593,7 +621,9 @@ export default function Template({
     tr.off("transformend");
 
     if (Array.isArray(selectedId)) {
-      const nodes = selectedId.map((id) => stage.findOne(`#${id}`)).filter(Boolean);
+      const nodes = selectedId
+        .map((id) => stage.findOne(`#${id}`))
+        .filter(Boolean);
       tr.nodes(nodes);
       if (nodes.length > 0) {
         tr.on("transformend", handleTransformEnd);
@@ -615,8 +645,18 @@ export default function Template({
     const size = gridSize;
     for (let i = -2000; i < 2000; i += size) {
       lines.push(
-        <Line key={`v${i}`} points={[i, -2000, i, 2000]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />,
-        <Line key={`h${i}`} points={[-2000, i, 2000, i]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />
+        <Line
+          key={`v${i}`}
+          points={[i, -2000, i, 2000]}
+          stroke="#2b2b2b"
+          strokeWidth={1 / camera.scale}
+        />,
+        <Line
+          key={`h${i}`}
+          points={[-2000, i, 2000, i]}
+          stroke="#2b2b2b"
+          strokeWidth={1 / camera.scale}
+        />
       );
     }
     return lines;
@@ -633,7 +673,7 @@ export default function Template({
       <Stage
         ref={stageRef}
         width={window.innerWidth - 320}
-        height={window.innerHeight - 56 - 48} // Adjust for bottom bar
+        height={window.innerHeight - 56 - 48}
         scaleX={camera.scale}
         scaleY={camera.scale}
         x={camera.x}
@@ -694,6 +734,89 @@ export default function Template({
                     fill={sh.color || "#9CA3AF"}
                     rotation={sh.rotation || 0}
                     opacity={0.5}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "polygon") {
+                return (
+                  <Path
+                    key={`bg-${sh.id}`}
+                    data={pointsToPath(sh.points)}
+                    fill={sh.fill}
+                    opacity={0.5}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              return null;
+            })}
+        </Layer>
+        {/* Preview Layer */}
+        <Layer>
+          {previewStrokes
+            .filter((s) => s.layer_id === activeLayerId)
+            .map((s) => (
+              <Line
+                key={`preview-${s.id}`}
+                points={s.points}
+                stroke={s.color}
+                strokeWidth={s.thickness}
+                lineCap="round"
+                lineJoin="round"
+                tension={0.5}
+                dash={[5, 5]} // Dashed for preview
+                opacity={0.7}
+                draggable={false}
+                listening={false}
+              />
+            ))}
+          {previewShapes
+            .filter((sh) => sh.layer_id === activeLayerId)
+            .map((sh) => {
+              if (sh.type === "rect") {
+                return (
+                  <Rect
+                    key={`preview-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    width={sh.width}
+                    height={sh.height}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.7}
+                    dash={[5, 5]}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "circle") {
+                return (
+                  <Circle
+                    key={`preview-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    radius={sh.radius}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.7}
+                    dash={[5, 5]}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "polygon") {
+                return (
+                  <Path
+                    key={`preview-${sh.id}`}
+                    data={pointsToPath(sh.points)}
+                    fill={sh.fill}
+                    opacity={0.7}
+                    dash={[5, 5]}
                     draggable={false}
                     listening={false}
                   />
@@ -765,13 +888,8 @@ export default function Template({
                   />
                 );
               }
-              return null;
-            })}
-            {shapes
-              .filter((sh) => sh.layer_id === activeLayerId)
-              .map((sh) => {
-                if (sh.type === "polygon") {
-                  return (
+              if (sh.type === "polygon") {
+                return (
                   <Path
                     key={sh.id}
                     id={sh.id.toString()}
@@ -783,10 +901,10 @@ export default function Template({
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
                   />
-                  );
-                }
-                return null;
-              })}
+                );
+              }
+              return null;
+            })}
           {currentStroke && (
             <Line
               points={currentStroke.points}
