@@ -418,31 +418,6 @@ class ProjectController extends Controller
         return response()->json(['block' => $block]);
     }
 
-    
-    public function storeBlock(Request $request)
-    {
-        $data = $request->validate([
-            'layer_id' => 'required|integer|exists:layers,id',
-            'object_ids' => 'required|array',
-            'width' => 'required|integer',
-            'height' => 'required|integer',
-            'anchor_x' => 'required|integer',
-            'anchor_y' => 'required|integer',
-            'points' => 'nullable|array',
-        ]);
-
-        $block = Block::create([
-            'layer_id' => $data['layer_id'],
-            'object_ids' => json_encode($data['object_ids']),
-            'width' => $data['width'],
-            'height' => $data['height'],
-            'anchor_x' => $data['anchor_x'],
-            'anchor_y' => $data['anchor_y'],
-            'points' => isset($data['points']) ? json_encode($data['points']) : null,
-        ]);
-
-        return response()->json(['block' => $block]);
-    }
 
 
 }

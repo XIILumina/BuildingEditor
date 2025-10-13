@@ -133,7 +133,6 @@ export function getLineIntersections(lines) {
 export function makeAnchorBlock(objects) {
   if (!objects || objects.length === 0) return null;
 
-  // Collect all points from objects
   let allPoints = [];
   let ids = [];
   objects.forEach(obj => {
@@ -159,7 +158,15 @@ export function makeAnchorBlock(objects) {
     }
   });
 
-  // Calculate bounding box
+  if (allPoints.length === 0) return {
+    object_id: ids,
+    points: [],
+    width: null,
+    height: null,
+    anchor_x: null,
+    anchor_y: null,
+  };
+
   const xs = allPoints.map(p => p[0]);
   const ys = allPoints.map(p => p[1]);
   const minX = Math.min(...xs);
@@ -173,7 +180,7 @@ export function makeAnchorBlock(objects) {
   const anchor_y = minY + height / 2;
 
   return {
-    object_ids: ids,
+    object_id: ids,
     points: allPoints,
     width,
     height,

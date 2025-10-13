@@ -35,6 +35,10 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/editor/{id}', fn($id) => Inertia::render('Editor/EditorApp', ['projectId' => $id]))->name('editor');
     Route::get('/edit', [EditController::class, 'index'])->name('edit.index');
+    Route::post('/editor/anchor-block/store', [AnchorBlockController::class, 'store']);
+    Route::put('/editor/anchor-block/{id}', [AnchorBlockController::class, 'update']);
+    Route::delete('/editor/anchor-block/{id}', [AnchorBlockController::class, 'destroy']);
+
 
     Route::post('/openai/chat', [OpenAIController::class, 'chat']);
     Route::post('/openai/promptblock', [OpenAIController::class, 'promptblock']);
@@ -50,8 +54,6 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/projects/{project}/export-png', [ProjectController::class, 'exportPng']);
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
     Route::post('/projects/{project}/duplicate', [ProjectController::class, 'duplicate']);
-
-    Route::post('/editor/anchor-block/store', [AnchorBlockController::class, 'store']);
 
 
     

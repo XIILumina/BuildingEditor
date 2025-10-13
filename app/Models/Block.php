@@ -8,7 +8,7 @@ class Block extends Model
 {
       protected $fillable = [
         'layer_id',
-        'object_ids', // JSON array of IDs
+        'object_id', // JSON array of IDs
         'points',
         'width',
         'height',
@@ -27,7 +27,7 @@ class Block extends Model
         }
 
         protected $casts = [
-            'object_ids' => 'array',
+            'object_id' => 'array',
             'points' => 'array',
         ];
 }

@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-/*  Eraser modelis, kas pārstāv dzēšgumijas rīku slānī. */
+/*  Eraser modelis, kas neļauj lai nekāda cita informācija izņemot definēto varētu tikt datubāzē */
 class Eraser extends Model {
 
     protected $fillable = [
@@ -13,5 +13,10 @@ class Eraser extends Model {
     'thickness'
     ];
     protected $casts = ['points' => 'array'];
-    public function layer() { return $this->belongsTo(Layer::class); }
+
+    public function layer()
+     {
+         return $this->belongsTo(Layer::class);
+         }
+
 }

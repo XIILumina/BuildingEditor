@@ -668,27 +668,30 @@ if (tool === "fill") {
     tr.getLayer()?.batchDraw();
   }, [selectedId, strokes, shapes]);
 
-  const renderGrid = () => {
-    const lines = [];
-    const size = gridSize;
-    for (let i = -2000; i < 2000; i += size) {
-      lines.push(
-        <Line
-          key={`v${i}`}
-          points={[i, -2000, i, 2000]}
-          stroke="#2b2b2b"
-          strokeWidth={1 / camera.scale}
-        />,
-        <Line
-          key={`h${i}`}
-          points={[-2000, i, 2000, i]}
-          stroke="#2b2b2b"
-          strokeWidth={1 / camera.scale}
-        />
-      );
-    }
-    return lines;
-  };
+const renderGrid = () => {
+  const lines = [];
+  const size = gridSize;
+  for (let i = -2000; i < 2000; i += size) {
+    const isThick = (Math.round(i / size) % 5 === 0);
+    lines.push(
+      <Line
+        key={`v${i}`}
+        points={[i, -2000, i, 2000]}
+        stroke="#2b2b2b"
+        strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+        opacity={isThick ? 0.7 : 1}
+      />,
+      <Line
+        key={`h${i}`}
+        points={[-2000, i, 2000, i]}
+        stroke="#2b2b2b"
+        strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+        opacity={isThick ? 0.7 : 1}
+      />
+    );
+  }
+  return lines;
+};
 
   const handleSelectObject = (id) => {
     if (tool === "select") {

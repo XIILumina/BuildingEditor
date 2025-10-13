@@ -30,4 +30,4 @@ export default function Shapes({ addShape }) {
       </motion.button>
     </motion.div>
   );
-}
+}   
