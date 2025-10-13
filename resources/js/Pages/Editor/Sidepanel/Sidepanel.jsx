@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FiCopy, FiTrash2 } from 'react-icons/fi'; // Add react-icons for copy and clear icons
 
 export default function Sidepanel({
+  makeAnchorBlock,
   sidepanelMode,
   setSidepanelMode,
   thickness,
@@ -148,6 +149,14 @@ export default function Sidepanel({
                   whileTap={{ scale: 0.98 }}
                 >
                   Rectangle
+                </motion.button>
+                                <motion.button
+                  onClick={makeAnchorBlock}
+                  className="flex-1 py-2 px-4 bg-[#06b6d4] text-[#071021] border border-[#334155]"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Create Anchor Block
                 </motion.button>
                 <motion.button
                   onClick={() => addShape('circle')}

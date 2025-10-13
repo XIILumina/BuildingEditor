@@ -23,7 +23,7 @@ class OpenAIController extends Controller
 
         try {
             $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
+                'model' => 'gpt-4.1',
                 'messages' => $messages,
             ]);
             \Log::debug("OpenAI response: " . json_encode($response));
@@ -44,7 +44,7 @@ class OpenAIController extends Controller
         $request->validate([
             'prompt' => 'required|string|max:1000',
         ]);
-        $promptblock = $request->input('prompt');
+        $promptblock = $request->input('prompt');   
         $promptblock = str_split($promptblock, 500);
         return response()->json(['promptblock' => $promptblock]);
     }
@@ -54,6 +54,7 @@ class OpenAIController extends Controller
         $request->validate([
             'prompt' => 'required|string|max:1000',
             'projectData' => 'required|json',
+            'model' => 'gpt-4.1',
         ]);
         \Log::debug("AI Draw Suggestion Request: " . json_encode($request->all()));
 
@@ -98,7 +99,7 @@ EOD;
 
         try {
             $response = $client->chat()->create([
-                'model' => 'gpt-4o-mini',
+                'model' => 'gpt-4.1',
                 'messages' => $messages,
             ]);
 

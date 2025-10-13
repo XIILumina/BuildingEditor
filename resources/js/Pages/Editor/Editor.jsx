@@ -3,11 +3,11 @@ import { usePage, Link as InertiaLink } from "@inertiajs/react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import Template from "./Template";
+import { makeAnchorBlock, detectRooms } from "./utils/drawingUtils";
 import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
 import TextInput from '@/Components/TextInput';
-import { detectRooms } from './utils/drawingUtils'; // Import for room validation
 
 let aiRequestInProgress = false;
 
@@ -88,15 +88,28 @@ export default function Editor({ projectId }) {
     setSaveState('unsaved');
   }, [snapshot]);
 
-  const updateStrokes = (newStrokes) => {
-    setStrokes(newStrokes);
-  };
-  const updateErasers = (newErasers) => {
-    setErasers(newErasers);
-  };
-  const updateShapes = (newShapes) => {
-    setShapes(newShapes);
-  };
+  // Example: In Editor.jsx or Template.jsx
+const handleCreateAnchorBlock = () => {
+  // Get selected objects (shapes and strokes)
+  const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
+  const selectedObjects = [
+    ...strokes.filter(s => ids.includes(s.id)),
+    ...shapes.filter(sh => ids.includes(sh.id))
+  ];
+  if (selectedObjects.length === 0) return;
+
+  const blockData = makeAnchorBlock(selectedObjects);
+
+  // Send blockData to backend or add to local state
+  // Example: Save to backend
+  axios.post('/editor/anchor-block/store', {
+    layer_id: activeLayerId,
+    ...blockData
+  }).then(res => {
+    // Optionally update frontend state with new block
+    console.log('Block created:', res.data.block);
+  });
+};
 
 const confirmPreview = useCallback(() => {
     pushHistory("confirm-ai-draw");
@@ -700,6 +713,7 @@ const selectedObject = useMemo(() => {
             handleAIPromptSubmit={handleAIPromptSubmit}
             chatContainerRef={chatContainerRef}
             clearAiMessages={clearAiMessages}
+            makeAnchorBlock={handleCreateAnchorBlock}
           />
         </motion.div>
       </div>

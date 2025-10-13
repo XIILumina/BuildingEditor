@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer, Circle, Path } from "react-konva";
-import { detectRooms, isPointInPolygon, pointsEqual } from './utils/drawingUtils';
+import { detectRooms, isPointInPolygon, pointsEqual, getLineIntersections } from './utils/drawingUtils';
 
 function pointsToPath(points) {
   if (!points || points.length < 2) return "";
@@ -344,27 +344,42 @@ export default function Template({
       return;
     }
 
-    if (tool === "fill") {
-      const pos = getMousePos(stage);
-      if (!pos) return;
+   
+if (tool === "fill") {
+  const pos = getMousePos(stage);
+  if (!pos) return;
 
-      const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
-      const { rooms } = detectRooms(walls);
+  const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
 
-      const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
-      if (containingRoom) {
-        const newShape = {
-          id: Date.now(),
-          type: "polygon",
-          points: containingRoom.flat(),
-          fill: drawColor,
-          closed: true,
-          layer_id: activeLayerId,
-        };
-        setShapes((prev) => [...prev, newShape]);
-      }
-      return;
+  // Get intersection points
+  const intersectionPoints = getLineIntersections(walls);
+
+  // Add intersection points to wall endpoints
+  let allWallPoints = [];
+  walls.forEach(wall => {
+    for (let i = 0; i < wall.points.length; i += 2) {
+      allWallPoints.push([wall.points[i], wall.points[i + 1]]);
     }
+  });
+  allWallPoints = allWallPoints.concat(intersectionPoints);
+
+  // Use allWallPoints in your room detection
+  const { rooms } = detectRooms(walls, allWallPoints);
+
+  const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
+  if (containingRoom) {
+    const newShape = {
+      id: Date.now(),
+      type: "polygon",
+      points: containingRoom.flat(),
+      fill: drawColor,
+      closed: true,
+      layer_id: activeLayerId,
+    };
+    setShapes((prev) => [...prev, newShape]);
+  }
+  return;
+}
 
     if (tool === "picker") {
       const pos = getMousePos(stage);
@@ -543,11 +558,24 @@ export default function Template({
           right = sh.x + r;
           top = sh.y - r;
           bottom = sh.y + r;
-        } else {
-          return false;
-        }
-        return left <= x2 && right >= x1 && top <= y2 && bottom >= y1;
-      });
+        } else if (sh.type === "line") {
+          left = Math.min(sh.x1, sh.x2);
+          right = Math.max(sh.x1, sh.x2);
+          top = Math.min(sh.y1, sh.y2);
+          bottom = Math.max(sh.y1, sh.y2);
+        }  else if (sh.type === "polygon" && Array.isArray(sh.points)) {
+    // Check if any polygon point is inside the selection box
+    for (let i = 0; i < sh.points.length; i += 2) {
+      const px = sh.points[i];
+      const py = sh.points[i + 1];
+      if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
+});
 
       const hits = [...hitStrokes, ...hitShapes];
 

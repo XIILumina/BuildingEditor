@@ -7,6 +7,7 @@ use App\Models\Layer;
 use App\Models\Stroke;
 use App\Models\Eraser;
 use App\Models\Shape;
+use App\Models\Block;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -385,4 +386,63 @@ class ProjectController extends Controller
         imagedestroy($image);
         exit;
     }
+    public function createBlockWithAnchor(Request $request)
+    {
+        $data = $request->validate([
+            'layer_id' => 'required|integer|exists:layers,id',
+            'object_ids' => 'required|array',
+        ]);
+
+        $objects = Shape::whereIn('id', $data['object_ids'])->get();
+
+        // Calculate bounding box
+        $minX = $objects->min('x');
+        $minY = $objects->min('y');
+        $maxX = $objects->max(function($obj) { return $obj->x + ($obj->width ?? $obj->radius ?? 0); });
+        $maxY = $objects->max(function($obj) { return $obj->y + ($obj->height ?? $obj->radius ?? 0); });
+
+        $width = $maxX - $minX;
+        $height = $maxY - $minY;
+        $anchor_x = $minX + ($width / 2);
+        $anchor_y = $minY + ($height / 2);
+
+        $block = Block::create([
+            'layer_id' => $data['layer_id'],
+            'object_ids' => json_encode($data['object_ids']),
+            'width' => $width,
+            'height' => $height,
+            'anchor_x' => $anchor_x,
+            'anchor_y' => $anchor_y,
+        ]);
+
+        return response()->json(['block' => $block]);
+    }
+
+    
+    public function storeBlock(Request $request)
+    {
+        $data = $request->validate([
+            'layer_id' => 'required|integer|exists:layers,id',
+            'object_ids' => 'required|array',
+            'width' => 'required|integer',
+            'height' => 'required|integer',
+            'anchor_x' => 'required|integer',
+            'anchor_y' => 'required|integer',
+            'points' => 'nullable|array',
+        ]);
+
+        $block = Block::create([
+            'layer_id' => $data['layer_id'],
+            'object_ids' => json_encode($data['object_ids']),
+            'width' => $data['width'],
+            'height' => $data['height'],
+            'anchor_x' => $data['anchor_x'],
+            'anchor_y' => $data['anchor_y'],
+            'points' => isset($data['points']) ? json_encode($data['points']) : null,
+        ]);
+
+        return response()->json(['block' => $block]);
+    }
+
+
 }

@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\OpenAIController;
 use App\Http\Controllers\EditController;
+use App\Http\Controllers\AnchorBlockController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -49,6 +50,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/projects/{project}/export-png', [ProjectController::class, 'exportPng']);
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
     Route::post('/projects/{project}/duplicate', [ProjectController::class, 'duplicate']);
+
+    Route::post('/editor/anchor-block/store', [AnchorBlockController::class, 'store']);
 
 
     
