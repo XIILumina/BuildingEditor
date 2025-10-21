@@ -26,6 +26,7 @@
         "@inertiajs/inertia": "^0.11.1",
         "framer-motion": "^12.23.12",
         "konva": "^9.3.22",
+        "lucide-react": "^0.546.0",
         "openai": "^5.21.0",
         "playwright": "^1.56.0",
         "react-icons": "^5.5.0",
