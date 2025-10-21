@@ -14,7 +14,9 @@ function Dashboard() {
       axios
         .get("/projects")
         .then((response) => {
-          setProjects(response.data.projects || []);
+          const data = response.data;
+          const list = Array.isArray(data) ? data : (data?.projects ?? []);
+          setProjects(list);
         })
         .catch((err) => console.error("Error fetching projects:", err));
     }

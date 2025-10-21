@@ -1,9 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiCopy, FiTrash2 } from 'react-icons/fi'; // Add react-icons for copy and clear icons
+import { FiTrash2, FiCopy } from 'react-icons/fi';
+import TextInput from '@/Components/TextInput';
 
-export default function Sidepanel({
-  makeAnchorBlock,
+const Sidepanel = ({
   sidepanelMode,
   setSidepanelMode,
   thickness,
@@ -20,151 +20,180 @@ export default function Sidepanel({
   selectedObject,
   updateSelectedProperty,
   aiMessages,
-  aiRequestInProgress,
   aiPrompt,
   setAiPrompt,
   handleAIPromptSubmit,
   chatContainerRef,
-  clearAiMessages, // New prop to clear chat
-}) {
+  clearAiMessages,
+  makeAnchorBlock,
+}) => {
+  const materials = ['Brick', 'Wood', 'Concrete', 'Steel'];
+  const unitOptions = ['Metric', 'Imperial'];
+
+  // AI chat helpers / local state
   const textareaRef = useRef(null);
-  const maxChars = 500; // Character limit for AI prompt
+  const [aiRequestInProgress, setAiRequestInProgress] = useState(false); // local optimistic flag
+  const maxChars = 1000;
 
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.warn('Copy failed', e);
     }
-  }, [aiMessages, aiRequestInProgress]);
+  };
 
-  // Handle Enter key to submit prompt
+  const formatTimestamp = (ts) => {
+    if (!ts) return new Date().toLocaleTimeString();
+    const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+    return d.toLocaleTimeString();
+  };
+
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !aiRequestInProgress && aiPrompt.trim()) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleAIPromptSubmit();
-      setAiPrompt(''); // Clear input after sending
+      if (!aiRequestInProgress && aiPrompt?.trim()) {
+        setAiRequestInProgress(true);
+        Promise.resolve(handleAIPromptSubmit())
+          .finally(() => {
+            setAiRequestInProgress(false);
+            setAiPrompt('');
+            textareaRef.current?.blur();
+          });
+      }
     }
-  };
-
-  // Copy message to clipboard
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    alert('Message copied to clipboard!');
-  };
-
-  // Format timestamp
-  const formatTimestamp = () => {
-    const now = new Date();
-    return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#071227] text-[#f3f4f6]">
-      <div className="flex border-b border-[#334155] p-2">
+    <div className="h-full p-4 flex flex-col space-y-4 bg-[#071227] text-[#f3f4f6]">
+      <div className="flex space-x-2">
         <motion.button
           onClick={() => setSidepanelMode('properties')}
-          className={`flex-1 py-2 px-4 text-sm font-medium ${
-            sidepanelMode === 'properties' ? 'bg-[#06b6d4] text-[#071021]' : 'bg-[#334155] hover:bg-[#475569]'
-          } border border-[#334155]`}
-          whileHover={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)' }}
+          className={`flex-1 px-4 py-2 text-sm rounded ${
+            sidepanelMode === 'properties' ? 'bg-[#06b6d4] text-[#071021]' : 'bg-[#334155]'
+          }`}
+          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
           whileTap={{ scale: 0.98 }}
         >
           Properties
         </motion.button>
         <motion.button
           onClick={() => setSidepanelMode('ai-chat')}
-          className={`flex-1 py-2 px-4 text-sm font-medium ${
-            sidepanelMode === 'ai-chat' ? 'bg-[#06b6d4] text-[#071021]' : 'bg-[#334155] hover:bg-[#475569]'
-          } border border-[#334155]`}
-          whileHover={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)' }}
+          className={`flex-1 px-4 py-2 text-sm rounded ${
+            sidepanelMode === 'ai-chat' ? 'bg-[#06b6d4] text-[#071021]' : 'bg-[#334155]'
+          }`}
+          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
           whileTap={{ scale: 0.98 }}
         >
           AI Chat
         </motion.button>
       </div>
-      <div className="flex-1 p-4 overflow-y-auto">
+
+      <AnimatePresence mode="wait">
         {sidepanelMode === 'properties' && (
-          <div className="space-y-4">
+          <motion.div
+            key="properties"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="space-y-4"
+          >
             <div>
-              <label className="block text-sm font-medium">Thickness</label>
+              <label className="block text-sm">Thickness</label>
               <input
-                type="number"
-                value={thickness}
+                type="range"
+                min="1"
+                max="20"
+                value={thickness ?? 6}
                 onChange={(e) => setThickness(Number(e.target.value))}
-                className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                className="w-full"
               />
+              <span>{thickness ?? 6}px</span>
             </div>
             <div>
-              <label className="block text-sm font-medium">Material</label>
+              <label className="block text-sm">Material</label>
               <select
-                value={material}
+                value={material ?? materials[0]}
                 onChange={(e) => setMaterial(e.target.value)}
-                className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
               >
-                <option>Brick</option>
-                <option>Concrete</option>
-                <option>Wood</option>
-                <option>Steel</option>
+                {materials.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium">Grid Size</label>
+              <label className="block text-sm">Grid Size</label>
               <input
                 type="number"
-                value={gridSize}
+                value={gridSize ?? 10}
                 onChange={(e) => setGridSize(Number(e.target.value))}
-                className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium">Units</label>
+              <label className="block text-sm">Units</label>
               <select
-                value={units}
+                value={units ?? unitOptions[0]}
                 onChange={(e) => setUnits(e.target.value)}
-                className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
               >
-                <option>Metric</option>
-                <option>Imperial</option>
+                {unitOptions.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium">Draw Color</label>
+              <label className="block text-sm">Color</label>
               <input
                 type="color"
-                value={drawColor}
+                value={drawColor ?? '#ffffff'}
                 onChange={(e) => setDrawColor(e.target.value)}
-                className="w-full mt-1 h-10 bg-[#334155] border border-[#475569] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                className="w-full h-8 rounded"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium">Shapes</label>
-              <div className="flex space-x-2 mt-1">
+              <label className="block text-sm">Add Shape</label>
+              <div className="flex space-x-2">
                 <motion.button
                   onClick={() => addShape('rect')}
-                  className="flex-1 py-2 px-4 bg-[#06b6d4] text-[#071021] border border-[#334155]"
+                  className="px-4 py-2 bg-[#334155] text-sm rounded"
                   whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
                   whileTap={{ scale: 0.98 }}
                 >
                   Rectangle
                 </motion.button>
-                                <motion.button
-                  onClick={makeAnchorBlock}
-                  className="flex-1 py-2 px-4 bg-[#06b6d4] text-[#071021] border border-[#334155]"
-                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  Create Anchor Block
-                </motion.button>
                 <motion.button
                   onClick={() => addShape('circle')}
-                  className="flex-1 py-2 px-4 bg-[#06b6d4] text-[#071021] border border-[#334155]"
+                  className="px-4 py-2 bg-[#334155] text-sm rounded"
                   whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
                   whileTap={{ scale: 0.98 }}
                 >
                   Circle
+                </motion.button>
+                <motion.button
+                  onClick={() => addShape('oval')}
+                  className="px-4 py-2 bg-[#334155] text-sm rounded"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Oval
+                </motion.button>
+                <motion.button
+                  onClick={() => addShape('triangle')}
+                  className="px-4 py-2 bg-[#334155] text-sm rounded"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Triangle
+                </motion.button>
+                <motion.button
+                  onClick={() => addShape('polygon')}
+                  className="px-4 py-2 bg-[#334155] text-sm rounded"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Polygon
                 </motion.button>
               </div>
             </div>
@@ -172,8 +201,8 @@ export default function Sidepanel({
               <div>
                 <h3 className="text-lg font-semibold">Selected Object</h3>
                 {selectedObject.isWall && (
-                  <div className="mt-2">
-                    <label className="block text-sm font-medium">Length</label>
+                  <div>
+                    <label className="block text-sm">Length</label>
                     <input
                       type="number"
                       value={Math.hypot(
@@ -181,47 +210,48 @@ export default function Sidepanel({
                         selectedObject.points[3] - selectedObject.points[1]
                       )}
                       onChange={(e) => updateSelectedProperty('length', Number(e.target.value))}
-                      className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                      className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
                     />
                   </div>
                 )}
                 {selectedObject.type === 'rect' && (
                   <>
-                    <div className="mt-2">
-                      <label className="block text-sm font-medium">Width</label>
+                    <div>
+                      <label className="block text-sm">Width</label>
                       <input
                         type="number"
-                        value={selectedObject.width}
+                        value={selectedObject.width ?? 80}
                         onChange={(e) => updateSelectedProperty('width', Number(e.target.value))}
-                        className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                        className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
                       />
                     </div>
-                    <div className="mt-2">
-                      <label className="block text-sm font-medium">Height</label>
+                    <div>
+                      <label className="block text-sm">Height</label>
                       <input
                         type="number"
-                        value={selectedObject.height}
+                        value={selectedObject.height ?? 60}
                         onChange={(e) => updateSelectedProperty('height', Number(e.target.value))}
-                        className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                        className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
                       />
                     </div>
                   </>
                 )}
                 {selectedObject.type === 'circle' && (
-                  <div className="mt-2">
-                    <label className="block text-sm font-medium">Radius</label>
+                  <div>
+                    <label className="block text-sm">Radius</label>
                     <input
                       type="number"
-                      value={selectedObject.radius}
+                      value={selectedObject.radius ?? 40}
                       onChange={(e) => updateSelectedProperty('radius', Number(e.target.value))}
-                      className="w-full mt-1 p-2 bg-[#334155] border border-[#475569] text-[#f3f4f6] focus:outline-none focus:ring-2 focus:ring-[#06b6d4]"
+                      className="w-full bg-[#334155] text-[#f3f4f6] rounded p-2"
                     />
                   </div>
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
+
         {sidepanelMode === 'ai-chat' && (
           <div className="flex flex-col h-full">
             <div className="flex justify-between items-center mb-2">
@@ -257,7 +287,7 @@ export default function Sidepanel({
                   >
                     <p className="text-sm">{msg.content}</p>
                     <div className="text-xs text-gray-400 mt-1">
-                      {formatTimestamp()}
+                      {formatTimestamp(msg.timestamp)}
                     </div>
                     {msg.role !== 'user' && (
                       <motion.button
@@ -304,7 +334,7 @@ export default function Sidepanel({
             <div className="mt-2 relative">
               <textarea
                 ref={textareaRef}
-                value={aiPrompt}
+                value={aiPrompt ?? ''}
                 onChange={(e) => setAiPrompt(e.target.value.slice(0, maxChars))}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask the AI for help (e.g., 'Tips for designing a blueprint')"
@@ -312,26 +342,34 @@ export default function Sidepanel({
                 rows="3"
               />
               <div className="text-xs text-gray-400 absolute bottom-2 right-2">
-                {aiPrompt.length}/{maxChars}
+                {aiPrompt?.length ?? 0}/{maxChars}
               </div>
               <motion.button
                 onClick={() => {
-                  handleAIPromptSubmit();
-                  setAiPrompt(''); // Clear input after sending
+                  if (!aiRequestInProgress && aiPrompt?.trim()) {
+                    setAiRequestInProgress(true);
+                    Promise.resolve(handleAIPromptSubmit())
+                      .finally(() => {
+                        setAiRequestInProgress(false);
+                        setAiPrompt('');
+                      });
+                  }
                 }}
-                disabled={aiRequestInProgress || !aiPrompt.trim()}
+                disabled={aiRequestInProgress || !aiPrompt?.trim()}
                 className={`w-full mt-2 py-2 px-4 bg-[#06b6d4] text-[#071021] border border-[#334155] rounded-md ${
-                  aiRequestInProgress || !aiPrompt.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                  aiRequestInProgress || !aiPrompt?.trim() ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
-                whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)', scale: aiRequestInProgress || !aiPrompt.trim() ? 1 : 1.02 }}
-                whileTap={{ scale: aiRequestInProgress || !aiPrompt.trim() ? 1 : 0.98 }}
+                whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)', scale: aiRequestInProgress || !aiPrompt?.trim() ? 1 : 1.02 }}
+                whileTap={{ scale: aiRequestInProgress || !aiPrompt?.trim() ? 1 : 0.98 }}
               >
                 Send
               </motion.button>
             </div>
           </div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
-}
+};
+
+export default Sidepanel;

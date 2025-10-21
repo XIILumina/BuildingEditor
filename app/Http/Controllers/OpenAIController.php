@@ -54,12 +54,11 @@ class OpenAIController extends Controller
         $request->validate([
             'prompt' => 'required|string|max:1000',
             'projectData' => 'required|json',
-            'model' => 'gpt-4.1',
+            'model' => 'gpt-5',
         ]);
         \Log::debug("AI Draw Suggestion Request: " . json_encode($request->all()));
 
         if (!env('OPENAI_API_KEY')) {
-            \Log::error("OPENAI_API_KEY is not set in .env");
             return response()->json(['success' => false, 'error' => 'OpenAI API key missing'], 500);
         }
 
@@ -72,15 +71,28 @@ class OpenAIController extends Controller
 
         // System prompt with pre-encoded projectData
         $systemPrompt = <<<EOD
-You are an AI assistant that generates JSON data for a drawing application. The JSON must contain arrays of 'strokes' and/or 'shapes' to be rendered on a canvas. The format must match the following:
+You are an AI assistant for a drawing app. Your job is to generate valid JSON for canvas objects. 
+Output ONLY a JSON object, wrapped in ```json ... ``` (no explanations, no comments).
 
-- Strokes: {id: number, points: number[], color: string, thickness: number, isWall: boolean, layer_id: number, material: string}
-- Shapes: 
-  - Rect: {id: number, type: "rect", x: number, y: number, width: number, height: number, color: string, rotation: number, layer_id: number}
-  - Circle: {id: number, type: "circle", x: number, y: number, radius: number, color: string, rotation: number, layer_id: number}
-  - Polygon: {id: number, type: "polygon", points: number[], fill: string, closed: boolean, layer_id: number}
+Format:
+{
+  "strokes": [
+    {"id": 1, "points": [10,10, 100,10], "color": "#ff0000", "thickness": 10, "isWall": true, "layer_id": 1}
+  ],
+  "shapes": [
+    {"id": 2, "type": "rect", "x": 20, "y": 20, "width": 100, "height": 60, "color": "#00ff00", "rotation": 0, "layer_id": 1},
+    {"id": 3, "type": "circle", "x": 200, "y": 200, "radius": 40, "color": "#0000ff", "rotation": 0, "layer_id": 1},
+    {"id": 4, "type": "polygon", "points": [10,10, 60,10, 60,60, 10,60], "fill": "#cccccc", "closed": true, "layer_id": 1}
+  ]
+}
+you can adjust the size of polygons, circles and rectangles accordingly, just keep in mind the JSOn structure. 
 
-The canvas uses a grid system (default gridSize=10). Coordinates and dimensions should be multiples of 10 for alignment. Colors are hex codes (e.g., "#ff0000"). The current project data is provided to analyze and base suggestions on.
+Rules:
+- Use only valid hex colors.
+- All coordinates and sizes must be multiples of 10.
+- Do not include any text outside the JSON block.
+- If the prompt asks for a room, make sure walls form a closed loop.
+- If you add furniture, place it inside rooms.
 
 Current project data:
 ```json

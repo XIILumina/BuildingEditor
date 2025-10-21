@@ -4,8 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Shape extends Model {
-
+class Shape extends Model
+{
     protected $fillable = [
         'layer_id',
         'type',
@@ -14,7 +14,23 @@ class Shape extends Model {
         'width',
         'height',
         'radius',
-        'color'
+        'radiusX',
+        'radiusY',
+        'color',
+        'fill',
+        'stroke',
+        'strokeWidth',
+        'rotation',
+        'closed',
+        'points',
+        'data',
+        'block_id'
     ];
+
+    protected $casts = [
+        'points' => 'array',
+        'closed' => 'boolean',
+    ];
+
     public function layer() { return $this->belongsTo(Layer::class); }
 }

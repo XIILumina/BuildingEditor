@@ -93,7 +93,7 @@ export default function Register() {
                         onChange={(e) =>
                             setData('password_confirmation', e.target.value)
                         }
-                        required
+                        required    
                     />
 
                     <InputError

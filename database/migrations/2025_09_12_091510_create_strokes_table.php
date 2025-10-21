@@ -19,6 +19,7 @@ return new class extends Migration
             $table->integer('thickness')->default(6);
             $table->boolean('isWall')->default(false);
             $table->string('material')->nullable();
+            $table->integer('rotation')->default(0)->nullable();
             $table->timestamps();
         });
     }
