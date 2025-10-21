@@ -1,111 +1,147 @@
-import React, { useState } from 'react';
-import ApplicationLogo from '@/Components/ApplicationLogo';
-import Dropdown from '@/Components/Dropdown';
-import NavLink from '@/Components/NavLink';
-import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
-import { Link, usePage } from '@inertiajs/react';
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Home,
+  LayoutDashboard,
+  LogOut,
+  User,
+  Menu,
+  X,
+  PenTool,
+} from "lucide-react";
+import ApplicationLogo from "@/Components/ApplicationLogo";
+import Dropdown from "@/Components/Dropdown";
+import NavLink from "@/Components/NavLink";
+import ResponsiveNavLink from "@/Components/ResponsiveNavLink";
+import { Link, usePage } from "@inertiajs/react";
 
 export default function AuthenticatedLayout({ header, children }) {
-    const user = usePage().props.auth.user;
-    const [showingNavigationDropdown, setShowingNavigationDropdown] = useState(false);
+  const user = usePage().props.auth.user;
+  const [showMenu, setShowMenu] = useState(false);
 
-    return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-            {/* Navbar */}
-            <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16">
-                        {/* Left side */}
-                        <div className="flex">
-                            <div className="flex items-center shrink-0">
-                                <Link href="/">
-                                    <ApplicationLogo className="h-9 w-auto text-indigo-600 dark:text-indigo-400" />
-                                </Link>
-                            </div>
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-black via-gray-950 to-black text-gray-100 flex flex-col">
+      {/* Navbar */}
+      <motion.nav
+        initial={{ y: -50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6 }}
+        className="sticky top-0 z-50 backdrop-blur-md bg-gray-900/70 border-b border-cyan-800/40 shadow-cyan-500/10 shadow-md"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          {/* Left side */}
+          <div className="flex items-center space-x-3">
+            <Link href="/" className="flex items-center space-x-2">
+              <ApplicationLogo className="h-9 w-auto text-cyan-400" />
+              <span className="text-2xl font-extrabold bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent">
+                BlueprintApp
+              </span>
+            </Link>
+          </div>
 
-                            <div className="hidden sm:flex sm:space-x-8 sm:ml-10">
-                                <NavLink href={route('dashboard')} active={route().current('dashboard')}>
-                                    Dashboard
-                                </NavLink>
-                            </div>
-                        </div>
+          {/* Desktop Nav */}
+          <div className="hidden md:flex items-center space-x-6">
+            <NavLink
+              href={route("dashboard")}
+              active={route().current("dashboard")}
+            >
+              <div className="flex items-center space-x-2">
+                <LayoutDashboard size={18} />
+                <span>Dashboard</span>
+              </div>
+            </NavLink>
 
-                        {/* Right side */}
-                        <div className="hidden sm:flex sm:items-center sm:ml-6">
-                            <Dropdown>
-                                <Dropdown.Trigger>
-                                    <button
-                                        type="button"
-                                        className="flex items-center text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
-                                    >
-                                        {user.name}
-                                        <svg className="ml-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                            <path
-                                                fillRule="evenodd"
-                                                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 
-                                                1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 
-                                                010-1.414z"
-                                                clipRule="evenodd"
-                                            />
-                                        </svg>
-                                    </button>
-                                </Dropdown.Trigger>
+            {/* User dropdown */}
+            <Dropdown>
+              <Dropdown.Trigger>
+                <button className="flex items-center space-x-2 text-gray-300 hover:text-cyan-400 transition">
+                  <User size={18} />
+                  <span>{user.name}</span>
+                </button>
+              </Dropdown.Trigger>
+              <Dropdown.Content className="bg-gray-900 border border-gray-700">
+                <Dropdown.Link href={route("profile.edit")}>
+                  Profile
+                </Dropdown.Link>
+                <Dropdown.Link
+                  href={route("logout")}
+                  method="post"
+                  as="button"
+                  className="text-red-400 hover:text-red-500"
+                >
+                  <LogOut size={16} className="inline mr-2" />
+                  Logout
+                </Dropdown.Link>
+              </Dropdown.Content>
+            </Dropdown>
+          </div>
 
-                                <Dropdown.Content>
-                                    <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
-                                    <Dropdown.Link href={route('logout')} method="post" as="button">
-                                        Log Out
-                                    </Dropdown.Link>
-                                </Dropdown.Content>
-                            </Dropdown>
-                        </div>
-
-                        {/* Mobile hamburger */}
-                        <div className="flex items-center sm:hidden">
-                            <button
-                                onClick={() => setShowingNavigationDropdown(!showingNavigationDropdown)}
-                                className="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            >
-                                <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                                    {!showingNavigationDropdown ? (
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                                    ) : (
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                    )}
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Mobile menu */}
-                {showingNavigationDropdown && (
-                    <div className="sm:hidden px-2 pt-2 pb-3 space-y-1">
-                        <ResponsiveNavLink href={route('dashboard')} active={route().current('dashboard')}>
-                            Dashboard
-                        </ResponsiveNavLink>
-                        <ResponsiveNavLink href={route('editor', { id: 1 })} active={route().current('editor')}>
-                            Editor
-                        </ResponsiveNavLink>
-                        <ResponsiveNavLink href={route('profile.edit')}>Profile</ResponsiveNavLink>
-                        <ResponsiveNavLink method="post" href={route('logout')} as="button">
-                            Log Out
-                        </ResponsiveNavLink>
-                    </div>
-                )}
-            </nav>
-
-            {/* Page header */}
-            {header && (
-                <header className="bg-white dark:bg-gray-800 shadow">
-                    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-gray-900 dark:text-gray-100">
-                        {header}
-                    </div>
-                </header>
-            )}
-
-            {/* Main content */}
-            <main className="p-6">{children}</main>
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="md:hidden p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition"
+          >
+            {showMenu ? <X size={22} /> : <Menu size={22} />}
+          </button>
         </div>
-    );
+
+        {/* Mobile menu */}
+        <AnimatePresence>
+          {showMenu && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="md:hidden bg-gray-950/90 border-t border-gray-800 px-4 py-3 space-y-3"
+            >
+              <ResponsiveNavLink
+                href={route("dashboard")}
+                active={route().current("dashboard")}
+              >
+                Dashboard
+              </ResponsiveNavLink>
+              <ResponsiveNavLink href={route("profile.edit")}>
+                Profile
+              </ResponsiveNavLink>
+              <ResponsiveNavLink method="post" href={route("logout")} as="button">
+                Logout
+              </ResponsiveNavLink>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.nav>
+
+      {/* Page Header */}
+      {header && (
+        <motion.header
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="bg-gray-900/70 backdrop-blur-md shadow-inner border-b border-cyan-800/20"
+        >
+          <div className="max-w-7xl mx-auto py-6 px-6">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent">
+              {header}
+            </h2>
+          </div>
+        </motion.header>
+      )}
+
+      {/* Main Content */}
+      <motion.main
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6 }}
+        className="flex-1 max-w-7xl mx-auto p-6"
+      >
+        {children}
+      </motion.main>
+
+      {/* Footer */}
+      <footer className="text-center py-4 border-t border-gray-800 text-gray-500 text-sm">
+        © {new Date().getFullYear()} BlueprintApp — Designed with ⚡ React,
+        Framer Motion, and TailwindCSS
+      </footer>
+    </div>
+  );
 }
