@@ -185,6 +185,13 @@ export default function Template({
 
   const handleDragMove = (e) => {
     const node = e.target;
+
+    // If multiple selected, do NOT snap; let Konva handle the drag naturally.
+    if (Array.isArray(selectedId) && selectedId.length > 1) {
+      setGuides([]);
+      return; // don't override node position
+    }
+
     const snaps = getSnapPositions();
     const threshold = 5;
 
@@ -321,6 +328,7 @@ export default function Template({
               newSh.radiusY = ry * node.scaleY();
               node.scaleX(1); node.scaleY(1);
             } else if (sh.type === "polygon") {
+              // Bake transform into points, then reset node transform and state x/y/rotation.
               const relTransform = node.getTransform();
               const oldPoints = sh.points;
               const newPoints = [];
@@ -330,6 +338,10 @@ export default function Template({
                 newPoints.push(world.x, world.y);
               }
               newSh.points = newPoints;
+              newSh.x = 0;
+              newSh.y = 0;
+              newSh.rotation = 0;
+
               node.x(0);
               node.y(0);
               node.scaleX(1);
@@ -812,6 +824,9 @@ const renderGrid = () => {
                   <Path
                     key={`bg-${sh.id}`}
                     data={pointsToPath(sh.points)}
+                    x={sh.x || 0}
+                    y={sh.y || 0}
+                    rotation={sh.rotation || 0}
                     fill={sh.fill}
                     opacity={0.5}
                     draggable={false}
@@ -899,6 +914,9 @@ const renderGrid = () => {
                   <Path
                     key={`preview-${sh.id}`}
                     data={pointsToPath(sh.points)}
+                    x={sh.x || 0}
+                    y={sh.y || 0}
+                    rotation={sh.rotation || 0}
                     fill={sh.fill}
                     opacity={0.7}
                     dash={[5, 5]}
@@ -998,6 +1016,9 @@ const renderGrid = () => {
                     key={sh.id}
                     id={sh.id.toString()}
                     data={pointsToPath(sh.points)}
+                    x={sh.x || 0}
+                    y={sh.y || 0}
+                    rotation={sh.rotation || 0}
                     fill={sh.fill}
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
