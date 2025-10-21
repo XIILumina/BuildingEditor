@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Transformer, Circle, Path } from "react-konva";
+import { Stage, Layer, Line, Rect, Transformer, Circle, Path, Ellipse } from "react-konva";
 import { detectRooms, isPointInPolygon, pointsEqual, getLineIntersections } from './utils/drawingUtils';
 
 function pointsToPath(points) {
@@ -125,6 +125,7 @@ export default function Template({
     const snaps = { vertical: new Set(), horizontal: new Set() };
 
     shapes.forEach((sh) => {
+      if (sh.layer_id !== activeLayerId) return;
       if (sh.type === "rect") {
         const w = sh.width || 80;
         const h = sh.height || 60;
@@ -142,10 +143,25 @@ export default function Template({
         snaps.horizontal.add(sh.y - r);
         snaps.horizontal.add(sh.y);
         snaps.horizontal.add(sh.y + r);
+      } else if (sh.type === "oval") {
+        const rx = sh.radiusX || 40;
+        const ry = sh.radiusY || 30;
+        snaps.vertical.add((sh.x || 0) - rx);
+        snaps.vertical.add(sh.x || 0);
+        snaps.vertical.add((sh.x || 0) + rx);
+        snaps.horizontal.add((sh.y || 0) - ry);
+        snaps.horizontal.add(sh.y || 0);
+        snaps.horizontal.add((sh.y || 0) + ry);
+      } else if (sh.type === "polygon" && Array.isArray(sh.points)) {
+        for (let i = 0; i < sh.points.length; i += 2) {
+          snaps.vertical.add(sh.points[i]);
+          snaps.horizontal.add(sh.points[i + 1]);
+        }
       }
     });
 
     strokes.forEach((st) => {
+      if (st.layer_id !== activeLayerId) return;
       for (let i = 0; i < st.points.length; i += 2) {
         snaps.vertical.add(st.points[i]);
         snaps.horizontal.add(st.points[i + 1]);
@@ -294,10 +310,17 @@ export default function Template({
             if (sh.type === "rect") {
               newSh.width = (node.width() || 80) * node.scaleX();
               newSh.height = (node.height() || 60) * node.scaleY();
+              node.scaleX(1); node.scaleY(1);
             } else if (sh.type === "circle") {
-              newSh.radius = (node.radius() || 40) * node.scaleX();
+              newSh.radius = (node.radius() || 40) * Math.max(node.scaleX(), node.scaleY());
+              node.scaleX(1); node.scaleY(1);
+            } else if (sh.type === "oval") {
+              const rx = typeof node.radiusX === "function" ? node.radiusX() : (sh.radiusX || 0);
+              const ry = typeof node.radiusY === "function" ? node.radiusY() : (sh.radiusY || 0);
+              newSh.radiusX = rx * node.scaleX();
+              newSh.radiusY = ry * node.scaleY();
+              node.scaleX(1); node.scaleY(1);
             } else if (sh.type === "polygon") {
-              // Update points for polygon
               const relTransform = node.getTransform();
               const oldPoints = sh.points;
               const newPoints = [];
@@ -313,8 +336,6 @@ export default function Template({
               node.scaleY(1);
               node.rotation(0);
             }
-            node.scaleX(1);
-            node.scaleY(1);
             node.getLayer().batchDraw();
             return newSh;
           })
@@ -770,6 +791,22 @@ const renderGrid = () => {
                   />
                 );
               }
+              if (sh.type === "oval") {
+                return (
+                  <Ellipse
+                    key={`bg-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    radiusX={sh.radiusX}
+                    radiusY={sh.radiusY}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.5}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
               if (sh.type === "polygon") {
                 return (
                   <Path
@@ -831,6 +868,23 @@ const renderGrid = () => {
                     x={sh.x}
                     y={sh.y}
                     radius={sh.radius}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    opacity={0.7}
+                    dash={[5, 5]}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "oval") {
+                return (
+                  <Ellipse
+                    key={`preview-${sh.id}`}
+                    x={sh.x}
+                    y={sh.y}
+                    radiusX={sh.radiusX}
+                    radiusY={sh.radiusY}
                     fill={sh.color || "#9CA3AF"}
                     rotation={sh.rotation || 0}
                     opacity={0.7}
@@ -909,6 +963,25 @@ const renderGrid = () => {
                     x={sh.x}
                     y={sh.y}
                     radius={sh.radius}
+                    fill={sh.color || "#9CA3AF"}
+                    rotation={sh.rotation || 0}
+                    draggable={tool === "select"}
+                    onClick={() => handleSelectObject(sh.id)}
+                    onDragStart={handleDragStart}
+                    onDragMove={handleDragMove}
+                    onDragEnd={handleDragEnd}
+                  />
+                );
+              }
+              if (sh.type === "oval") {
+                return (
+                  <Ellipse
+                    key={sh.id}
+                    id={sh.id.toString()}
+                    x={sh.x}
+                    y={sh.y}
+                    radiusX={sh.radiusX}
+                    radiusY={sh.radiusY}
                     fill={sh.color || "#9CA3AF"}
                     rotation={sh.rotation || 0}
                     draggable={tool === "select"}

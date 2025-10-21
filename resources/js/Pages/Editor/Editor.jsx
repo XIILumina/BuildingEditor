@@ -112,66 +112,122 @@ const handleCreateAnchorBlock = () => {
 };
 
 const confirmPreview = useCallback(() => {
-    pushHistory("confirm-ai-draw");
+  pushHistory("confirm-ai-draw");
 
-    // Validate and map preview strokes
-    const validatedStrokes = previewStrokes
-        .filter(stroke => {
-            const isValid = stroke &&
-                typeof stroke.id === 'number' &&
-                Array.isArray(stroke.points) &&
-                typeof stroke.color === 'string' &&
-                typeof stroke.thickness === 'number' &&
-                typeof stroke.isWall === 'boolean' &&
-                typeof stroke.layer_id === 'number' &&
-                typeof stroke.material === 'string';
-            if (!isValid) {
-                console.warn('Invalid stroke:', stroke);
-            }
-            return isValid;
-        })
-        .map(stroke => ({
-            ...stroke,
-            id: Date.now() + Math.random(), // Ensure unique ID
-            layer_id: activeLayerId // Ensure layer_id is set
-        }));
+  // Validate and map preview strokes (keep as-is, but relax layer_id/rotation defaults)
+  const validatedStrokes = (previewStrokes || [])
+    .filter((stroke) => {
+      const isValid =
+        stroke &&
+        Array.isArray(stroke.points) &&
+        typeof stroke.color === "string" &&
+        typeof stroke.thickness === "number" &&
+        typeof stroke.isWall === "boolean";
+      if (!isValid) console.warn("Invalid stroke:", stroke);
+      return isValid;
+    })
+    .map((stroke) => ({
+      ...stroke,
+      id: Date.now() + Math.random(),
+      layer_id: Number.isFinite(stroke.layer_id) ? stroke.layer_id : activeLayerId,
+      rotation: Number.isFinite(stroke.rotation) ? stroke.rotation : 0,
+    }));
 
-   const validatedShapes = previewShapes
-        .filter(shape => {
-            const isValid = shape &&
-                typeof shape.id === 'number' &&
-                typeof shape.type === 'string' &&
-                ['rect', 'circle', 'polygon'].includes(shape.type) &&
-                typeof shape.color === 'string' &&
-                typeof shape.rotation === 'number' &&
-                typeof shape.layer_id === 'number' &&
-                (shape.type === 'rect' ? 
-                    (typeof shape.x === 'number' && 
-                     typeof shape.y === 'number' && 
-                     typeof shape.width === 'number' && 
-                     typeof shape.height === 'number') :
-                 shape.type === 'circle' ? 
-                    (typeof shape.x === 'number' && 
-                     typeof shape.y === 'number' && 
-                     typeof shape.radius === 'number') :
-                    (Array.isArray(shape.points) && 
-                     typeof shape.fill === 'string' && 
-                     typeof shape.closed === 'boolean'));
-            if (!isValid) {
-                console.warn('Invalid shape:', shape);
-            }
-            return isValid;
-        })
-        .map(shape => ({
-            ...shape,
-            id: Date.now() + Math.random(), // Ensure unique ID
-            layer_id: activeLayerId // Ensure layer_id is set
-        }));
-            setStrokes(prev => [...prev, ...validatedStrokes]);
-            setShapes(prev => [...prev, ...validatedShapes]);
-            setPreviewStrokes([]);
-            setPreviewShapes([]);
-            setSaveState('unsaved');
+  // Helpers
+  const isFiniteNum = (v) => typeof v === "number" && Number.isFinite(v);
+  const normalizeEllipseType = (t) => (t === "ellipse" ? "oval" : t);
+
+  function normalizeShape(shape) {
+    if (!shape || typeof shape !== "object") return null;
+
+    const type = normalizeEllipseType(String(shape.type || "").toLowerCase());
+    // default id/rotation/layer
+    const out = {
+      id: Date.now() + Math.random(),
+      type,
+      rotation: isFiniteNum(shape.rotation) ? shape.rotation : 0,
+      layer_id: Number.isFinite(shape.layer_id) ? shape.layer_id : activeLayerId,
+    };
+
+    if (type === "rect") {
+      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.width) && isFiniteNum(shape.height))) {
+        console.warn("Invalid rect:", shape);
+        return null;
+      }
+      return {
+        ...out,
+        x: shape.x,
+        y: shape.y,
+        width: shape.width,
+        height: shape.height,
+        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
+      };
+    }
+
+    if (type === "circle") {
+      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.radius))) {
+        console.warn("Invalid circle:", shape);
+        return null;
+      }
+      return {
+        ...out,
+        x: shape.x,
+        y: shape.y,
+        radius: shape.radius,
+        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
+      };
+    }
+
+    if (type === "oval") {
+      // Accept 'ellipse' from AI; require radiusX/radiusY
+      const x = isFiniteNum(shape.x) ? shape.x : null;
+      const y = isFiniteNum(shape.y) ? shape.y : null;
+      const rx = isFiniteNum(shape.radiusX) ? shape.radiusX : null;
+      const ry = isFiniteNum(shape.radiusY) ? shape.radiusY : null;
+      if (x === null || y === null || rx === null || ry === null) {
+        console.warn("Invalid oval/ellipse:", shape);
+        return null;
+      }
+      return {
+        ...out,
+        x,
+        y,
+        radiusX: rx,
+        radiusY: ry,
+        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
+      };
+    }
+
+    if (type === "polygon") {
+      const pts = Array.isArray(shape.points) ? shape.points : [];
+      // need at least 3 points => length >= 6 and even-length array
+      if (pts.length < 6 || pts.length % 2 !== 0 || !pts.every((n) => isFiniteNum(n))) {
+        console.warn("Invalid polygon points:", shape);
+        return null;
+      }
+      // prefer fill; fall back to color
+      const fill = typeof shape.fill === "string" ? shape.fill : (typeof shape.color === "string" ? shape.color : "#9CA3AF");
+      return {
+        ...out,
+        points: pts,
+        fill,
+        closed: typeof shape.closed === "boolean" ? shape.closed : true,
+      };
+    }
+
+    console.warn("Unsupported shape type:", shape);
+    return null;
+  }
+
+  const validatedShapes = (previewShapes || [])
+    .map(normalizeShape)
+    .filter(Boolean);
+
+  setStrokes((prev) => [...prev, ...validatedStrokes]);
+  setShapes((prev) => [...prev, ...validatedShapes]);
+  setPreviewStrokes([]);
+  setPreviewShapes([]);
+  setSaveState("unsaved");
 }, [previewStrokes, previewShapes, pushHistory, activeLayerId]);
 
   const clearPreview = useCallback(() => {
