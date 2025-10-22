@@ -34,4 +34,4 @@ return new class extends Migration {
             if (Schema::hasColumn('shapes', 'radiusX')) $table->dropColumn('radiusX');
         });
     }
-};
+};  

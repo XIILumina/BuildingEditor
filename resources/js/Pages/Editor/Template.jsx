@@ -3,14 +3,23 @@ import { Stage, Layer, Line, Rect, Transformer, Circle, Path, Ellipse } from "re
 import { detectRooms, isPointInPolygon, pointsEqual, getLineIntersections } from './utils/drawingUtils';
 
 function pointsToPath(points) {
-  if (!points || points.length < 2) return "";
-  let path = `M${points[0]} ${points[1]}`;
-  for (let i = 2; i < points.length; i += 2) {
-    path += ` L${points[i]} ${points[i + 1]}`;
+  // Coerce to numbers and drop invalids
+  if (!Array.isArray(points) || points.length < 2) return "";
+  const p = points.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  if (p.length < 2) return "";
+  let path = `M${p[0]} ${p[1]}`;
+  for (let i = 2; i < p.length; i += 2) {
+    if (!Number.isFinite(p[i]) || !Number.isFinite(p[i + 1])) continue;
+    path += ` L${p[i]} ${p[i + 1]}`;
   }
   path += " Z";
   return path;
 }
+// Helper to coerce numbers safely
+const num = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
 export default function Template({
   tool = "select",
@@ -36,6 +45,7 @@ export default function Template({
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
+  const activeLayerRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [selectionBox, setSelectionBox] = useState(null);
@@ -270,9 +280,22 @@ export default function Template({
       );
     } else {
       setShapes((prev) =>
-        prev.map((sh) =>
-          sh.id === id ? { ...sh, x: node.x(), y: node.y() } : sh
-        )
+        prev.map((sh) => {
+          if (sh.id !== id) return sh;
+          // For polygons: bake translation into points and reset x/y to 0
+          if (sh.type === "polygon" && Array.isArray(sh.points)) {
+            const dx = node.x() || 0;
+            const dy = node.y() || 0;
+            const newPoints = sh.points.map((p, i) => p + (i % 2 === 0 ? dx : dy));
+            // reset node transform to keep state consistent
+            node.x(0);
+            node.y(0);
+            node.getLayer().batchDraw();
+            return { ...sh, points: newPoints, x: 0, y: 0, rotation: 0 };
+          }
+          // Others: keep x/y from the node
+          return { ...sh, x: node.x(), y: node.y() };
+        })
       );
     }
     setGuides([]);
@@ -371,48 +394,48 @@ export default function Template({
     let pos = getMousePos(stage);
     if (!pos) return;
 
-    if (tool === "select" && !isDraggingNode && e.target === stage) {
+    // Start marquee when clicking empty stage or empty layer
+    if (tool === "select" && !isDraggingNode && (e.target === stage || e.target.getClassName?.() === "Layer")) {
       setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
       setSelectedId(null);
       return;
     }
 
-   
-if (tool === "fill") {
-  const pos = getMousePos(stage);
-  if (!pos) return;
+    if (tool === "fill") {
+      const pos = getMousePos(stage);
+      if (!pos) return;
 
-  const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
+      const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
 
-  // Get intersection points
-  const intersectionPoints = getLineIntersections(walls);
+      // Get intersection points
+      const intersectionPoints = getLineIntersections(walls);
 
-  // Add intersection points to wall endpoints
-  let allWallPoints = [];
-  walls.forEach(wall => {
-    for (let i = 0; i < wall.points.length; i += 2) {
-      allWallPoints.push([wall.points[i], wall.points[i + 1]]);
+      // Add intersection points to wall endpoints
+      let allWallPoints = [];
+      walls.forEach(wall => {
+        for (let i = 0; i < wall.points.length; i += 2) {
+          allWallPoints.push([wall.points[i], wall.points[i + 1]]);
+        }
+      });
+      allWallPoints = allWallPoints.concat(intersectionPoints);
+
+      // Use allWallPoints in your room detection
+      const { rooms } = detectRooms(walls, allWallPoints);
+
+      const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
+      if (containingRoom) {
+        const newShape = {
+          id: Date.now(),
+          type: "polygon",
+          points: containingRoom.flat(),
+          fill: drawColor,
+          closed: true,
+          layer_id: activeLayerId,
+        };
+        setShapes((prev) => [...prev, newShape]);
+      }
+      return;
     }
-  });
-  allWallPoints = allWallPoints.concat(intersectionPoints);
-
-  // Use allWallPoints in your room detection
-  const { rooms } = detectRooms(walls, allWallPoints);
-
-  const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
-  if (containingRoom) {
-    const newShape = {
-      id: Date.now(),
-      type: "polygon",
-      points: containingRoom.flat(),
-      fill: drawColor,
-      closed: true,
-      layer_id: activeLayerId,
-    };
-    setShapes((prev) => [...prev, newShape]);
-  }
-  return;
-}
 
     if (tool === "picker") {
       const pos = getMousePos(stage);
@@ -430,6 +453,7 @@ if (tool === "fill") {
       if (snapToGrid) {
         pos = getMousePos(stage, true);
       }
+      setIsDrawing(true);
       setCurrentStroke({
         points: [pos.x, pos.y],
         color: drawColor,
@@ -437,7 +461,6 @@ if (tool === "fill") {
         isWall: tool === "wall",
         isEraser: false,
       });
-      setIsDrawing(true);
     }
 
     if (tool === "eraser") {
@@ -563,54 +586,25 @@ if (tool === "fill") {
       const y1 = Math.min(y, y + height);
       const y2 = Math.max(y, y + height);
 
-      const hitStrokes = strokes.filter(
-        (s) =>
-          s.layer_id === activeLayerId &&
-          s.points.some(
-            (_, i) =>
-              i % 2 === 0 &&
-              s.points[i] >= x1 &&
-              s.points[i] <= x2 &&
-              s.points[i + 1] >= y1 &&
-              s.points[i + 1] <= y2
-          )
-      );
+      // Use Konva nodes' client rects (handles rotation/scale)
+      const layer = activeLayerRef.current;
+      const intersectsRect = (rect) => {
+        const L = rect.x, R = rect.x + rect.width, T = rect.y, B = rect.y + rect.height;
+        return !(R < x1 || L > x2 || B < y1 || T > y2);
+      };
+      const nodes = layer
+        ? layer.find((n) => {
+            const cls = n.getClassName?.();
+            // Limit to drawable items only
+            return ["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls) && n.id?.();
+          })
+        : [];
+      const hitIds = nodes
+        .filter((n) => intersectsRect(n.getClientRect()))
+        .map((n) => parseInt(n.id(), 10))
+        .filter((id) => Number.isFinite(id));
 
-      const hitShapes = shapes.filter(
-        (sh) => sh.layer_id === activeLayerId
-      ).filter((sh) => {
-        let left, right, top, bottom;
-        if (sh.type === "rect") {
-          left = sh.x;
-          right = sh.x + (sh.width || 0);
-          top = sh.y;
-          bottom = sh.y + (sh.height || 0);
-        } else if (sh.type === "circle") {
-          const r = sh.radius || 0;
-          left = sh.x - r;
-          right = sh.x + r;
-          top = sh.y - r;
-          bottom = sh.y + r;
-        } else if (sh.type === "line") {
-          left = Math.min(sh.x1, sh.x2);
-          right = Math.max(sh.x1, sh.x2);
-          top = Math.min(sh.y1, sh.y2);
-          bottom = Math.max(sh.y1, sh.y2);
-        }  else if (sh.type === "polygon" && Array.isArray(sh.points)) {
-    // Check if any polygon point is inside the selection box
-    for (let i = 0; i < sh.points.length; i += 2) {
-      const px = sh.points[i];
-      const py = sh.points[i + 1];
-      if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
-        return true;
-      }
-    }
-    return false;
-  }
-  return false;
-});
-
-      const hits = [...hitStrokes, ...hitShapes];
+      const hits = Array.from(new Set(hitIds)).map((id) => ({ id }));
 
       if (hits.length > 1) {
         setSelectedId(hits.map((h) => h.id));
@@ -679,21 +673,40 @@ if (tool === "fill") {
     const stage = stageRef.current;
     if (!tr || !stage) return;
 
+    const hasFiniteRect = (n) => {
+      try {
+        const r = n.getClientRect();
+        return (
+          Number.isFinite(r.x) &&
+          Number.isFinite(r.y) &&
+          Number.isFinite(r.width) &&
+          Number.isFinite(r.height)
+        );
+      } catch (_) {
+        return false;
+      }
+    };
+
     tr.off("transformend");
 
-    if (Array.isArray(selectedId)) {
+    if (Array.isArray(selectedId) && selectedId.length) {
       const nodes = selectedId
         .map((id) => stage.findOne(`#${id}`))
-        .filter(Boolean);
-      tr.nodes(nodes);
-      if (nodes.length > 0) {
+        .filter(Boolean)
+        .filter((n) => hasFiniteRect(n));
+      if (nodes.length) {
+        tr.nodes(nodes);
         tr.on("transformend", handleTransformEnd);
+      } else {
+        tr.nodes([]);
       }
-    } else if (selectedId) {
+    } else if (!Array.isArray(selectedId) && selectedId) {
       const node = stage.findOne(`#${selectedId}`);
-      if (node) {
+      if (node && hasFiniteRect(node)) {
         tr.nodes([node]);
         tr.on("transformend", handleTransformEnd);
+      } else {
+        tr.nodes([]);
       }
     } else {
       tr.nodes([]);
@@ -758,9 +771,11 @@ const renderGrid = () => {
             .map((s) => (
               <Line
                 key={`bg-${s.id}`}
-                points={s.points}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
                 stroke={s.color}
-                strokeWidth={s.thickness}
+                strokeWidth={num(s.thickness, 1)}
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
@@ -776,12 +791,12 @@ const renderGrid = () => {
                 return (
                   <Rect
                     key={`bg-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    width={sh.width}
-                    height={sh.height}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    width={num(sh.width)}
+                    height={num(sh.height)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.5}
                     draggable={false}
                     listening={false}
@@ -792,11 +807,11 @@ const renderGrid = () => {
                 return (
                   <Circle
                     key={`bg-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    radius={sh.radius}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radius={num(sh.radius)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.5}
                     draggable={false}
                     listening={false}
@@ -807,12 +822,12 @@ const renderGrid = () => {
                 return (
                   <Ellipse
                     key={`bg-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    radiusX={sh.radiusX}
-                    radiusY={sh.radiusY}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radiusX={num(sh.radiusX)}
+                    radiusY={num(sh.radiusY)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.5}
                     draggable={false}
                     listening={false}
@@ -824,9 +839,9 @@ const renderGrid = () => {
                   <Path
                     key={`bg-${sh.id}`}
                     data={pointsToPath(sh.points)}
-                    x={sh.x || 0}
-                    y={sh.y || 0}
-                    rotation={sh.rotation || 0}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    rotation={num(sh.rotation)}
                     fill={sh.fill}
                     opacity={0.5}
                     draggable={false}
@@ -837,6 +852,7 @@ const renderGrid = () => {
               return null;
             })}
         </Layer>
+
         {/* Preview Layer */}
         <Layer>
           {previewStrokes
@@ -844,13 +860,15 @@ const renderGrid = () => {
             .map((s) => (
               <Line
                 key={`preview-${s.id}`}
-                points={s.points}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
                 stroke={s.color}
-                strokeWidth={s.thickness}
+                strokeWidth={num(s.thickness, 1)}
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
-                dash={[5, 5]} // Dashed for preview
+                dash={[5, 5]}
                 opacity={0.7}
                 draggable={false}
                 listening={false}
@@ -863,12 +881,12 @@ const renderGrid = () => {
                 return (
                   <Rect
                     key={`preview-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    width={sh.width}
-                    height={sh.height}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    width={num(sh.width)}
+                    height={num(sh.height)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.7}
                     dash={[5, 5]}
                     draggable={false}
@@ -880,11 +898,11 @@ const renderGrid = () => {
                 return (
                   <Circle
                     key={`preview-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    radius={sh.radius}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radius={num(sh.radius)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.7}
                     dash={[5, 5]}
                     draggable={false}
@@ -896,12 +914,12 @@ const renderGrid = () => {
                 return (
                   <Ellipse
                     key={`preview-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    radiusX={sh.radiusX}
-                    radiusY={sh.radiusY}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radiusX={num(sh.radiusX)}
+                    radiusY={num(sh.radiusY)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     opacity={0.7}
                     dash={[5, 5]}
                     draggable={false}
@@ -914,9 +932,9 @@ const renderGrid = () => {
                   <Path
                     key={`preview-${sh.id}`}
                     data={pointsToPath(sh.points)}
-                    x={sh.x || 0}
-                    y={sh.y || 0}
-                    rotation={sh.rotation || 0}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    rotation={num(sh.rotation)}
                     fill={sh.fill}
                     opacity={0.7}
                     dash={[5, 5]}
@@ -928,19 +946,20 @@ const renderGrid = () => {
               return null;
             })}
         </Layer>
+
         {/* Active Layer */}
-        <Layer>
+        <Layer ref={activeLayerRef}>
           {strokes
             .filter((s) => s.layer_id === activeLayerId)
             .map((s) => (
               <Line
                 key={s.id}
                 id={s.id.toString()}
-                x={s.x || 0}
-                y={s.y || 0}
-                points={s.points}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
                 stroke={s.color}
-                strokeWidth={s.thickness}
+                strokeWidth={num(s.thickness, 1)}
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
@@ -959,12 +978,12 @@ const renderGrid = () => {
                   <Rect
                     key={sh.id}
                     id={sh.id.toString()}
-                    x={sh.x}
-                    y={sh.y}
-                    width={sh.width}
-                    height={sh.height}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    width={num(sh.width)}
+                    height={num(sh.height)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
@@ -978,11 +997,11 @@ const renderGrid = () => {
                   <Circle
                     key={sh.id}
                     id={sh.id.toString()}
-                    x={sh.x}
-                    y={sh.y}
-                    radius={sh.radius}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radius={num(sh.radius)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
@@ -996,12 +1015,12 @@ const renderGrid = () => {
                   <Ellipse
                     key={sh.id}
                     id={sh.id.toString()}
-                    x={sh.x}
-                    y={sh.y}
-                    radiusX={sh.radiusX}
-                    radiusY={sh.radiusY}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radiusX={num(sh.radiusX)}
+                    radiusY={num(sh.radiusY)}
                     fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
+                    rotation={num(sh.rotation)}
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
@@ -1016,9 +1035,9 @@ const renderGrid = () => {
                     key={sh.id}
                     id={sh.id.toString()}
                     data={pointsToPath(sh.points)}
-                    x={sh.x || 0}
-                    y={sh.y || 0}
-                    rotation={sh.rotation || 0}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    rotation={num(sh.rotation)}
                     fill={sh.fill}
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
@@ -1032,9 +1051,9 @@ const renderGrid = () => {
             })}
           {currentStroke && (
             <Line
-              points={currentStroke.points}
+              points={Array.isArray(currentStroke.points) ? currentStroke.points.map((p) => num(p)) : []}
               stroke={currentStroke.color}
-              strokeWidth={currentStroke.thickness}
+              strokeWidth={num(currentStroke.thickness, 1)}
               lineCap="round"
               lineJoin="round"
               tension={0.5}

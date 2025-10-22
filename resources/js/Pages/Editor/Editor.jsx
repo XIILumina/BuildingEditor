@@ -212,6 +212,8 @@ const confirmPreview = useCallback(() => {
         points: pts,
         fill,
         closed: typeof shape.closed === "boolean" ? shape.closed : true,
+        x: Number.isFinite(shape.x) ? shape.x : 0,
+        y: Number.isFinite(shape.y) ? shape.y : 0,
       };
     }
 
