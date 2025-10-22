@@ -24,7 +24,11 @@ class Shape extends Model
         'closed',
         'color',       // for rect/circle/oval fallback
     ];
-
+        protected $casts = [
+        'points' => 'array',
+        'closed' => 'boolean',
+    ];
+    
     public function layer()
     {
         return $this->belongsTo(Layer::class);

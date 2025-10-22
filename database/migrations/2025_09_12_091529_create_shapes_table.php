@@ -20,7 +20,15 @@ return new class extends Migration
             $table->integer('width')->nullable();
             $table->integer('height')->nullable();
             $table->integer('radius')->nullable();
+            $table->json('points')->nullable();
             $table->string('color')->default('#9CA3AF');
+            $table->string('stroke')->nullable();
+            $table->string('fill', 8)->nullable();
+            $table->integer('strokeWidth')->nullable();
+            $table->boolean('closed')->default(false);
+            $table->double('rotation')->default(0);
+            $table->integer('radiusX')->nullable();
+            $table->integer('radiusY')->nullable();
             $table->timestamps();
         });
     }

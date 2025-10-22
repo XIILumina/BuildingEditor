@@ -92,7 +92,7 @@ Output format:
     // Oval (ellipse)
     {"id": number, "type": "oval", "x": number, "y": number, "radiusX": number, "radiusY": number, "color": "#RRGGBB", "rotation": number, "layer_id": number},
     // Polygon (filled area like room/furniture)
-    {"id": number, "type": "polygon", "points": number[], "fill": "#RRGGBB", "closed": true, "layer_id": number, "rotation": number}
+    {"id": number, "type": "polygon", "x": number, "y": number, "points": number[], "fill": "#RRGGBB", "color": "#RRGGBB", "closed": true, "layer_id": number, "rotation": number}
   ]
 }
 
@@ -101,6 +101,7 @@ Rules:
 - Numbers must be integers (multiples of gridSize).
 - Colors must be hex (#rrggbb).
 - points is an even-length array: [x1,y1,x2,y2,...]; for polygons use >= 6 values (>= 3 vertices).
+- For polygons: set x,y to the min point (top-left) of the polygon’s bbox, and make points relative to (0,0).
 - For rooms: prefer polygon with closed=true, or rects for axis-aligned rooms.
 - For walls: use strokes with isWall=true, straight segments, endpoints aligned on the grid.
 - Use the existing layer_id when appropriate (fall back to the active layer id).
@@ -176,12 +177,6 @@ EOD;
         $snap = function ($n) use ($gridSize) {
             if (!is_numeric($n)) return 0;
             return (int)round(((float)$n) / $gridSize) * $gridSize;
-        };
-        $clamp = function ($n, $min, $max) {
-            $n = (int)$n;
-            if ($n < $min) return $min;
-            if ($n > $max) return $max;
-            return $n;
         };
         $evenPoints = function ($pts) {
             return is_array($pts) && count($pts) % 2 === 0 && count($pts) >= 6;
@@ -287,12 +282,30 @@ EOD;
                 if (!$this->isNumericArray($pts)) continue;
                 $pts = array_map(fn($v) => $snap($v), $pts);
                 if (!$evenPoints($pts)) continue;
+
+                // Compute bbox and convert to local points
+                $minX = PHP_INT_MAX; $minY = PHP_INT_MAX;
+                for ($i = 0; $i < count($pts); $i += 2) {
+                    $minX = min($minX, $pts[$i]);
+                    $minY = min($minY, $pts[$i + 1]);
+                }
+                $local = [];
+                for ($i = 0; $i < count($pts); $i += 2) {
+                    $local[] = $pts[$i] - $minX;
+                    $local[] = $pts[$i + 1] - $minY;
+                }
+
                 $fill = is_string($sh['fill'] ?? null) && preg_match($hex, $sh['fill']) ? $sh['fill'] : '#9ca3af';
+                $color = is_string($sh['color'] ?? null) && preg_match($hex, $sh['color']) ? $sh['color'] : $fill;
+
                 $outShapes[] = [
                     'id' => $sh['id'] ?? (int) (microtime(true) * 1000),
                     'type' => 'polygon',
-                    'points' => $pts,
+                    'x' => (int)$minX,
+                    'y' => (int)$minY,
+                    'points' => $local,
                     'fill' => $fill,
+                    'color' => $color,
                     'closed' => true,
                     'layer_id' => $layerId,
                     'rotation' => $rotation,

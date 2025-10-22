@@ -317,12 +317,14 @@ const confirmPreview = useCallback(() => {
       const res = await axios.post(`/projects/${projectId}/layers`, { name: `Layer ${layers.length + 1}` });
       const newLayer = res.data?.layer ?? { id: Date.now(), name: `Layer ${layers.length + 1}` };
       setLayers(prev => [...prev, newLayer]);
+      setSelectedId(null);
       setActiveLayerId(newLayer.id);
       setSaveState('unsaved');
     } catch (err) {
       console.error("Failed to create layer:", err);
       const newLayer = { id: Date.now(), name: `Layer ${layers.length + 1}` };
       setLayers(prev => [...prev, newLayer]);
+      setSelectedId(null);
       setActiveLayerId(newLayer.id);
       setSaveState('unsaved');
     }
@@ -332,6 +334,7 @@ const confirmPreview = useCallback(() => {
     if (layers.length <= 1) return;
     if (!confirm(`Delete layer and all its contents?`)) return;
     const newActiveId = layers.find(l => l.id !== layerId)?.id || layers[0].id;
+    setSelectedId(null);
     setActiveLayerId(newActiveId);
     setLayers(prev => prev.filter(l => l.id !== layerId));
     setStrokes(prev => prev.filter(s => s.layer_id !== layerId));
@@ -793,7 +796,7 @@ const selectedObject = useMemo(() => {
                 transition={{ duration: 0.2 }}
               >
                 <motion.button
-                  onClick={() => setActiveLayerId(layer.id)}
+                  onClick={() => { setSelectedId(null); setActiveLayerId(layer.id); }}
                   className={`px-3 py-2 text-sm font-medium ${
                     activeLayerId === layer.id
                       ? 'bg-[#06b6d4] text-[#071021]'

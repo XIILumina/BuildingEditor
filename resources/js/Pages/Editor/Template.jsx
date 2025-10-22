@@ -35,9 +35,8 @@ export default function Template({
   gridSize = 20,
   material = "Brick",
   selectedId = null,
-  setSelectedId = () => {},
-  layers = [],
-  activeLayerId = 1,
+  setSelectedId,
+  activeLayerId,
   snapToGrid = true,
   onSave = () => {},
   previewStrokes = [], // New prop
@@ -53,6 +52,30 @@ export default function Template({
   const [guides, setGuides] = useState([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
+
+  // Clear selection and Transformer when active layer changes
+  useEffect(() => {
+    setSelectedId(null);
+    const tr = transformerRef.current;
+    if (tr) tr.nodes([]);
+  }, [activeLayerId, setSelectedId]);
+
+  // Sanitize selection if selected ids are no longer present (e.g., layer switch or deletion)
+  useEffect(() => {
+    const idsInActive = new Set([
+      ...strokes.filter((s) => s.layer_id === activeLayerId).map((s) => s.id),
+      ...shapes.filter((sh) => sh.layer_id === activeLayerId).map((sh) => sh.id),
+    ]);
+
+    if (Array.isArray(selectedId)) {
+      const keep = selectedId.filter((id) => idsInActive.has(id));
+      if (keep.length !== selectedId.length) {
+        setSelectedId(keep.length ? keep : null);
+      }
+    } else if (selectedId && !idsInActive.has(selectedId)) {
+      setSelectedId(null);
+    }
+  }, [strokes, shapes, activeLayerId, selectedId, setSelectedId]);
 
   // -----------------------
   // Helpers
@@ -271,7 +294,7 @@ export default function Template({
       node.x(0);
       node.y(0);
       node.points(newPoints);
-      node.getLayer().batchDraw();
+      node.getLayer()?.batchDraw(); // safe
 
       setStrokes((prev) =>
         prev.map((st) =>
@@ -282,18 +305,15 @@ export default function Template({
       setShapes((prev) =>
         prev.map((sh) => {
           if (sh.id !== id) return sh;
-          // For polygons: bake translation into points and reset x/y to 0
           if (sh.type === "polygon" && Array.isArray(sh.points)) {
             const dx = node.x() || 0;
             const dy = node.y() || 0;
             const newPoints = sh.points.map((p, i) => p + (i % 2 === 0 ? dx : dy));
-            // reset node transform to keep state consistent
             node.x(0);
             node.y(0);
-            node.getLayer().batchDraw();
+            node.getLayer()?.batchDraw(); // safe
             return { ...sh, points: newPoints, x: 0, y: 0, rotation: 0 };
           }
-          // Others: keep x/y from the node
           return { ...sh, x: node.x(), y: node.y() };
         })
       );
@@ -322,7 +342,7 @@ export default function Template({
         node.scaleY(1);
         node.rotation(0);
         node.points(newPoints);
-        node.getLayer().batchDraw();
+        node.getLayer()?.batchDraw(); // safe
 
         setStrokes((prev) =>
           prev.map((st) =>
@@ -351,7 +371,6 @@ export default function Template({
               newSh.radiusY = ry * node.scaleY();
               node.scaleX(1); node.scaleY(1);
             } else if (sh.type === "polygon") {
-              // Bake transform into points, then reset node transform and state x/y/rotation.
               const relTransform = node.getTransform();
               const oldPoints = sh.points;
               const newPoints = [];
@@ -371,7 +390,7 @@ export default function Template({
               node.scaleY(1);
               node.rotation(0);
             }
-            node.getLayer().batchDraw();
+            node.getLayer()?.batchDraw(); // safe
             return newSh;
           })
         );
@@ -394,11 +413,19 @@ export default function Template({
     let pos = getMousePos(stage);
     if (!pos) return;
 
-    // Start marquee when clicking empty stage or empty layer
+    // Start marquee on empty Stage/Layer
     if (tool === "select" && !isDraggingNode && (e.target === stage || e.target.getClassName?.() === "Layer")) {
       setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
       setSelectedId(null);
       return;
+    }
+
+    // If clicking in select mode on a non-drawable target, clear selection
+    if (tool === "select") {
+      const cls = e.target?.getClassName?.();
+      if (!["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls)) {
+        setSelectedId(null);
+      }
     }
 
     if (tool === "fill") {
@@ -429,6 +456,7 @@ export default function Template({
           type: "polygon",
           points: containingRoom.flat(),
           fill: drawColor,
+          color: drawColor, // ensure DB 'color' NOT NULL
           closed: true,
           layer_id: activeLayerId,
         };
@@ -1039,6 +1067,9 @@ const renderGrid = () => {
                     y={num(sh.y)}
                     rotation={num(sh.rotation)}
                     fill={sh.fill}
+                    stroke={sh.stroke || undefined}
+                    strokeWidth={num(sh.strokeWidth, 0)}
+                    hitStrokeWidth={12} // improve hit area for selection
                     draggable={tool === "select"}
                     onClick={() => handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
