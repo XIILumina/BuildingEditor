@@ -405,6 +405,12 @@ export default function Template({
     const stage = stageRef.current;
     if (!stage) return;
 
+    // If switching to any non-select tool, drop selection to avoid stale Transformer
+    if (tool !== "select" && selectedId) {
+      setSelectedId(null);
+      transformerRef.current?.nodes([]);
+    }
+
     if (e.evt.button === 2) {
       setIsPanning(true);
       return;
@@ -466,10 +472,10 @@ export default function Template({
     }
 
     if (tool === "picker") {
-      const pos = getMousePos(stage);
-      if (!pos) return;
-
-      const node = stage.getIntersection(pos);
+      // getIntersection expects stage (screen) coordinates
+      const p = stage.getPointerPosition();
+      if (!p) return;
+      const node = stage.getIntersection(p);
       if (node) {
         const color = node.fill() || node.stroke() || "#ffffff";
         setDrawColor(color);
@@ -614,7 +620,7 @@ export default function Template({
       const y1 = Math.min(y, y + height);
       const y2 = Math.max(y, y + height);
 
-      // Use Konva nodes' client rects (handles rotation/scale)
+      // Use Konva nodes' rects relative to the active layer (same space as selectionBox)
       const layer = activeLayerRef.current;
       const intersectsRect = (rect) => {
         const L = rect.x, R = rect.x + rect.width, T = rect.y, B = rect.y + rect.height;
@@ -623,12 +629,18 @@ export default function Template({
       const nodes = layer
         ? layer.find((n) => {
             const cls = n.getClassName?.();
-            // Limit to drawable items only
             return ["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls) && n.id?.();
           })
         : [];
       const hitIds = nodes
-        .filter((n) => intersectsRect(n.getClientRect()))
+        .filter((n) => {
+          try {
+            const r = n.getClientRect({ relativeTo: layer });
+            return intersectsRect(r);
+          } catch {
+            return false;
+          }
+        })
         .map((n) => parseInt(n.id(), 10))
         .filter((id) => Number.isFinite(id));
 
@@ -740,32 +752,32 @@ export default function Template({
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, strokes, shapes]);
+  }, [selectedId, strokes, shapes, activeLayerId]);
 
-const renderGrid = () => {
-  const lines = [];
-  const size = gridSize;
-  for (let i = -2000; i < 2000; i += size) {
-    const isThick = (Math.round(i / size) % 5 === 0);
-    lines.push(
-      <Line
-        key={`v${i}`}
-        points={[i, -2000, i, 2000]}
-        stroke="#2b2b2b"
-        strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
-        opacity={isThick ? 0.7 : 1}
-      />,
-      <Line
-        key={`h${i}`}
-        points={[-2000, i, 2000, i]}
-        stroke="#2b2b2b"
-        strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
-        opacity={isThick ? 0.7 : 1}
-      />
-    );
-  }
-  return lines;
-};
+  const renderGrid = () => {
+    const lines = [];
+    const size = gridSize;
+    for (let i = -2000; i < 2000; i += size) {
+      const isThick = (Math.round(i / size) % 5 === 0);
+      lines.push(
+        <Line
+          key={`v${i}`}
+          points={[i, -2000, i, 2000]}
+          stroke="#2b2b2b"
+          strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+          opacity={isThick ? 0.7 : 1}
+        />,
+        <Line
+          key={`h${i}`}
+          points={[-2000, i, 2000, i]}
+          stroke="#2b2b2b"
+          strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+          opacity={isThick ? 0.7 : 1}
+        />
+      );
+    }
+    return lines;
+  };
 
   const handleSelectObject = (id) => {
     if (tool === "select") {
@@ -790,8 +802,9 @@ const renderGrid = () => {
         style={{ background: "#0f1720" }}
         onContextMenu={(e) => e.evt.preventDefault()}
       >
-        <Layer>{renderGrid()}</Layer>
-        <Layer>{renderGuides()}</Layer>
+        {/* Non-interactive helpers so Stage receives clicks anywhere */}
+        <Layer listening={false}>{renderGrid()}</Layer>
+        <Layer listening={false}>{renderGuides()}</Layer>
         {/* Background Layer for inactive layers */}
         <Layer>
           {strokes
