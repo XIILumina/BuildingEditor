@@ -39,8 +39,11 @@ export default function Template({
   activeLayerId,
   snapToGrid = true,
   onSave = () => {},
-  previewStrokes = [], // New prop
-  previewShapes = [], // New prop
+  previewStrokes = [],
+  previewShapes = [],
+  mergedBlocks = [],
+  onUnmergeBlock = () => {},
+  anchoredBlocks = [],
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
@@ -53,6 +56,19 @@ export default function Template({
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
 
+  // Check if an object id belongs to an anchored block (or has anchored flag)
+  const isAnchored = (maybeId) => {
+    const id = typeof maybeId === 'number' ? maybeId : parseInt(maybeId, 10);
+    if (!Number.isFinite(id)) return false;
+    // Prefer flags on items if present
+    const st = strokes.find(s => s.id === id && s.layer_id === activeLayerId);
+    if (st && st.anchoredBlockId) return true;
+    const sh = shapes.find(s => s.id === id && s.layer_id === activeLayerId);
+    if (sh && sh.anchoredBlockId) return true;
+    // Fallback: membership in anchoredBlocks
+    return anchoredBlocks.some(b => b.layer_id === activeLayerId && (b.memberIds || []).includes(id));
+ };
+
   // Clear selection and Transformer when active layer changes
   useEffect(() => {
     setSelectedId(null);
@@ -60,11 +76,11 @@ export default function Template({
     if (tr) tr.nodes([]);
   }, [activeLayerId, setSelectedId]);
 
-  // Sanitize selection if selected ids are no longer present (e.g., layer switch or deletion)
+  // Sanitize selection (exclude locked/anchored)
   useEffect(() => {
     const idsInActive = new Set([
-      ...strokes.filter((s) => s.layer_id === activeLayerId).map((s) => s.id),
-      ...shapes.filter((sh) => sh.layer_id === activeLayerId).map((sh) => sh.id),
+      ...strokes.filter((s) => s.layer_id === activeLayerId && !s.locked && !s.anchoredBlockId).map((s) => s.id),
+      ...shapes.filter((sh) => sh.layer_id === activeLayerId && !sh.locked && !sh.anchoredBlockId).map((sh) => sh.id),
     ]);
 
     if (Array.isArray(selectedId)) {
@@ -217,6 +233,16 @@ export default function Template({
   };
 
   const handleDragMove = (e) => {
+    // If anchored, block movement by snapping back and skipping guides
+    const id = parseInt(e?.target?.id?.() || 0, 10);
+    if (isAnchored(id)) {
+      const node = e.target;
+      // Keep at its current data-driven position (Konva node.x/y reset in dragEnd anyway)
+      node.x(0);
+      node.y(0);
+      setGuides([]);
+      return;
+    }
     const node = e.target;
 
     // If multiple selected, do NOT snap; let Konva handle the drag naturally.
@@ -280,6 +306,14 @@ export default function Template({
     setIsDraggingNode(false);
     const node = e.target;
     const id = parseInt(node.id());
+    if (isAnchored(id)) {
+      // Revert any unintended offset
+      node.x(0);
+      node.y(0);
+      node.getLayer()?.batchDraw();
+      setGuides([]);
+      return;
+    }
     const className = node.getClassName();
 
     if (className === "Line") {
@@ -325,6 +359,14 @@ export default function Template({
     const nodes = transformerRef.current.nodes() || [];
     nodes.forEach((node) => {
       const id = parseInt(node.id());
+      if (isAnchored(id)) {
+        // Disallow any transforms on anchored members
+        node.x(0); node.y(0);
+        node.scaleX(1); node.scaleY(1);
+        node.rotation(0);
+        node.getLayer()?.batchDraw();
+        return;
+      }
       const className = node.getClassName();
 
       if (className === "Line") {
@@ -642,7 +684,15 @@ export default function Template({
           }
         })
         .map((n) => parseInt(n.id(), 10))
-        .filter((id) => Number.isFinite(id));
+        .filter((id) => Number.isFinite(id))
+        // Exclude locked/anchored items from marquee selection
+        .filter((id) => {
+          const st = strokes.find(s => s.id === id);
+          if (st && (st.locked || st.anchoredBlockId)) return false;
+          const sh = shapes.find(s => s.id === id);
+          if (sh && (sh.locked || sh.anchoredBlockId)) return false;
+          return true;
+        });
 
       const hits = Array.from(new Set(hitIds)).map((id) => ({ id }));
 
@@ -781,6 +831,11 @@ export default function Template({
 
   const handleSelectObject = (id) => {
     if (tool === "select") {
+      // Skip locked/anchored items
+      const blocked =
+        strokes.some(s => s.id === id && (s.locked || s.anchoredBlockId)) ||
+        shapes.some(s => s.id === id && (s.locked || s.anchoredBlockId));
+      if (blocked) return;
       setSelectedId(id);
     }
   };
@@ -1004,8 +1059,8 @@ export default function Template({
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
-                draggable={tool === "select"}
-                onClick={() => handleSelectObject(s.id)}
+                draggable={tool === "select" && !s.locked && !s.anchoredBlockId}
+                onClick={() => (!s.locked && !s.anchoredBlockId) && handleSelectObject(s.id)}
                 onDragStart={handleDragStart}
                 onDragMove={handleDragMove}
                 onDragEnd={handleDragEnd}
@@ -1025,8 +1080,8 @@ export default function Template({
                     height={num(sh.height)}
                     fill={sh.color || "#9CA3AF"}
                     rotation={num(sh.rotation)}
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
+                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
@@ -1043,8 +1098,8 @@ export default function Template({
                     radius={num(sh.radius)}
                     fill={sh.color || "#9CA3AF"}
                     rotation={num(sh.rotation)}
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
+                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
@@ -1062,8 +1117,8 @@ export default function Template({
                     radiusY={num(sh.radiusY)}
                     fill={sh.color || "#9CA3AF"}
                     rotation={num(sh.rotation)}
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
+                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
@@ -1082,9 +1137,9 @@ export default function Template({
                     fill={sh.fill}
                     stroke={sh.stroke || undefined}
                     strokeWidth={num(sh.strokeWidth, 0)}
-                    hitStrokeWidth={12} // improve hit area for selection
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
+                    hitStrokeWidth={12}
+                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
@@ -1093,6 +1148,44 @@ export default function Template({
               }
               return null;
             })}
+         {/* Merged block overlays (click to unmerge) */}
+         {mergedBlocks
+           .filter(b => b.layer_id === activeLayerId)
+           .map(b => (
+             <Rect
+               key={`block-${b.id}`}
+               x={num(b.x)}
+               y={num(b.y)}
+               width={num(b.width)}
+               height={num(b.height)}
+               fill="rgba(6,182,212,0.08)"
+               stroke="#06b6d4"
+               strokeWidth={1}
+               dash={[6, 6]}
+               listening={true}
+               onClick={(e) => { e.cancelBubble = true; onUnmergeBlock(b.id); }}
+               onTap={(e) => { e.cancelBubble = true; onUnmergeBlock(b.id); }}
+               draggable={false}
+             />
+           ))}
+         {/* Anchor block overlays (static, non-interactive) */}
+         {anchoredBlocks
+           .filter(b => b.layer_id === activeLayerId)
+           .map(b => (
+             <Rect
+               key={`anchor-${b.id}`}
+               x={num(b.x)}
+               y={num(b.y)}
+               width={num(b.width)}
+               height={num(b.height)}
+               fill="rgba(234,179,8,0.08)"     
+               stroke="#f59e0b"
+               strokeWidth={1.5}
+               dash={[8, 4]}
+               listening={false}              // ignore clicks; block is static
+               draggable={false}
+             />
+           ))}
           {currentStroke && (
             <Line
               points={Array.isArray(currentStroke.points) ? currentStroke.points.map((p) => num(p)) : []}

@@ -67,6 +67,9 @@ export default function Editor({ projectId }) {
   const [saveState, setSaveState] = useState('saved');
   const [aiMessages, setAiMessages] = useState([]);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [mergedBlocks, setMergedBlocks] = useState([]);
+  const [anchoredBlocks, setAnchoredBlocks] = useState([]);
+  
   const chatContainerRef = useRef(null);
 
   const saveInProgress = useRef(false);
@@ -605,7 +608,7 @@ const selectedObject = useMemo(() => {
       base.x = 200; 
       base.y = 200; 
       base.radius = 40;
-    }
+    } 
     setShapes((s) => [...s, base]);
   }, [pushHistory, activeLayerId]);
 
@@ -626,6 +629,122 @@ const selectedObject = useMemo(() => {
     setProjectName(e.target.value);
     setSaveState('unsaved');
   };
+
+  // Bounding box helpers
+const bboxOfStroke = (st) => {
+  const pts = Array.isArray(st.points) ? st.points : [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    const x = pts[i];
+    const y = pts[i + 1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!isFinite(minX)) return null;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+};
+
+const bboxOfShape = (sh) => {
+  if (sh.type === 'rect') {
+    return { x: sh.x || 0, y: sh.y || 0, width: sh.width || 0, height: sh.height || 0 };
+  }
+  if (sh.type === 'circle') {
+    const r = sh.radius || 0;
+    const cx = sh.x || 0, cy = sh.y || 0;
+    return { x: cx - r, y: cy - r, width: 2 * r, height: 2 * r };
+  }
+  if (sh.type === 'oval') {
+    const rx = sh.radiusX || 0, ry = sh.radiusY || 0;
+    const cx = sh.x || 0, cy = sh.y || 0;
+    return { x: cx - rx, y: cy - ry, width: 2 * rx, height: 2 * ry };
+  }
+  if (sh.type === 'polygon') {
+    const pts = Array.isArray(sh.points) ? sh.points : [];
+    const offX = Number.isFinite(sh.x) ? sh.x : 0;
+    const offY = Number.isFinite(sh.y) ? sh.y : 0;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = (pts[i] || 0) + offX;
+      const y = (pts[i + 1] || 0) + offY;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    if (!isFinite(minX)) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+  return null;
+};
+
+const bboxOfItem = (id) => {
+  const st = strokes.find(s => s.id === id);
+  if (st) return bboxOfStroke(st);
+  const sh = shapes.find(s => s.id === id);
+  if (sh) return bboxOfShape(sh);
+  return null;
+};
+
+const mergeSelected = useCallback(() => {
+  const ids = Array.isArray(selectedId) ? selectedId : (selectedId ? [selectedId] : []);
+  if (ids.length !== 2) {
+    alert("Select exactly 2 items to merge.");
+    return;
+  }
+  const items = ids.map(id => strokes.find(s => s.id === id) || shapes.find(sh => sh.id === id)).filter(Boolean);
+  if (items.length !== 2) return;
+  const layerIds = new Set(items.map(it => it.layer_id));
+  if (layerIds.size !== 1) {
+    alert("Both items must be on the same layer.");
+    return;
+  }
+  const layerId = items[0].layer_id;
+  const bboxes = ids.map(bboxOfItem).filter(Boolean);
+  if (bboxes.length !== 2) return;
+  const minX = Math.min(bboxes[0].x, bboxes[1].x);
+  const minY = Math.min(bboxes[0].y, bboxes[1].y);
+  const maxX = Math.max(bboxes[0].x + bboxes[0].width, bboxes[1].x + bboxes[1].width);
+  const maxY = Math.max(bboxes[0].y + bboxes[0].height, bboxes[1].y + bboxes[1].height);
+  const block = {
+    id: Date.now(),
+    memberIds: ids.slice(),
+    layer_id: layerId,
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+  // lock members
+  setStrokes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: true } : s));
+  setShapes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: true } : s));
+  setMergedBlocks(prev => [...prev, block]);
+  setSelectedId(null);
+}, [selectedId, strokes, shapes, setStrokes, setShapes]);
+
+const unmergeBlock = useCallback((blockId) => {
+  const blk = mergedBlocks.find(b => b.id === blockId);
+  if (!blk) return;
+  const ids = blk.memberIds || [];
+  setStrokes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: false } : s));
+  setShapes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: false } : s));
+  setMergedBlocks(prev => prev.filter(b => b.id !== blockId));
+}, [mergedBlocks, setStrokes, setShapes, setMergedBlocks]);
+
+// If any merged member is deleted, drop its block automatically
+useEffect(() => {
+  setMergedBlocks(prev =>
+    prev.filter(b => {
+      const stillThere = b.memberIds.every(id =>
+        strokes.some(s => s.id === id) || shapes.some(sh => sh.id === id)
+      );
+      return stillThere;
+    })
+  );
+}, [strokes, shapes]);
 
   const templateProps = {
     tool,
@@ -650,6 +769,9 @@ const selectedObject = useMemo(() => {
     onSave: () => {},
     previewStrokes, // Pass preview data
     previewShapes,
+    mergedBlocks,
+    onUnmergeBlock: unmergeBlock,
+    anchoredBlocks,
   };
 
   return (
@@ -775,6 +897,7 @@ const selectedObject = useMemo(() => {
             chatContainerRef={chatContainerRef}
             clearAiMessages={clearAiMessages}
             makeAnchorBlock={handleCreateAnchorBlock}
+            mergeSelected={mergeSelected}
           />
         </motion.div>
       </div>
