@@ -4,10 +4,6 @@ import { motion } from 'framer-motion';
 export default function Properties({
   thickness,
   setThickness,
-  material,
-  setMaterial,
-  drawColor,
-  setDrawColor,
   selectedObject,
   updateSelectedProperty,
   pxPerMeter
@@ -185,27 +181,6 @@ export default function Properties({
           className="w-full accent-[#06b6d4]"
         />
         <div className="text-xs text-[#9ca3af] mt-1">{thickness} cm</div>
-      </div>
-      <div className="mb-4">
-        <label className="block text-sm mb-2 text-[#f3f4f6]">Material</label>
-        <select
-          value={material}
-          onChange={(e) => setMaterial(e.target.value)}
-          className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-        >
-          <option>Brick</option>
-          <option>Concrete</option>
-          <option>Wood</option>
-        </select>
-      </div>
-      <div className="mb-4">
-        <label className="block text-sm mb-2 text-[#f3f4f6]">Draw color</label>
-        <input
-          type="color"
-          value={drawColor || '#ffffff'}
-          onChange={(e) => setDrawColor(e.target.value)}
-          className="w-12 h-12 border-none cursor-pointer"
-        />
       </div>
       <div className="border-t border-[#334155] pt-4 mt-4">
         <h3 className="text-lg font-semibold mb-3 text-[#f3f4f6]">Selected Object</h3>

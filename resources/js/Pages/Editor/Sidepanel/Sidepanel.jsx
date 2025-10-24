@@ -7,7 +7,6 @@ import {
 import Properties from './Pages/Properties'; // Adjust path as needed
 import Settings from './Pages/Settings'; // Adjust path as needed
 import Shapes from './Pages/Shapes'; // Adjust path as needed
-import Style from './Pages/Style'; // Adjust path as needed
 
 export default function Sidepanel({
   makeAnchorBlock,
@@ -21,8 +20,6 @@ export default function Sidepanel({
   setGridSize,
   units,
   setUnits,
-  drawColor,
-  setDrawColor,
   addShape,
   selectedObject,
   updateSelectedProperty,
@@ -91,7 +88,6 @@ export default function Sidepanel({
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
         {sidepanelMode === 'properties' && (
           <div className="space-y-5">
-            <Style />
             <Settings 
               gridSize={gridSize} 
               setGridSize={setGridSize} 
@@ -103,10 +99,6 @@ export default function Sidepanel({
             <Properties 
               thickness={thickness} 
               setThickness={setThickness} 
-              material={material} 
-              setMaterial={setMaterial} 
-              drawColor={drawColor} 
-              setDrawColor={setDrawColor} 
               selectedObject={selectedObject} 
               updateSelectedProperty={updateSelectedProperty}
               pxPerMeter={pxPerMeter}

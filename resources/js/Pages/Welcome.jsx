@@ -65,7 +65,7 @@ export default function Welcome({ auth }) {
                             Design Without Limits
                         </motion.h1>
                         <p className="text-gray-400 text-lg mb-10 leading-relaxed">
-                            A futuristic CAD-inspired platform for visualizing,
+                            A futuristic 2D Drawing platform for visualizing,
                             managing, and building your creative projects — powered
                             by React, Inertia, and a touch of magic.
                         </p>
@@ -85,7 +85,7 @@ export default function Welcome({ auth }) {
 
                 {/* Footer */}
                 <footer className="py-6 text-center text-sm text-gray-500 border-t border-gray-800">
-                    © {new Date().getFullYear()} BlueprintOS · Crafted with 💎
+                    © {new Date().getFullYear()} HouseEditor · Crafted with 💎
                 </footer>
             </div>
         </>
