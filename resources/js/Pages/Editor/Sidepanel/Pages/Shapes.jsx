@@ -28,6 +28,14 @@ export default function Shapes({ addShape }) {
       >
         Circle
       </motion.button>
+      <motion.button
+        onClick={() => addShape("oval")}
+        className="w-full bg-[#06b6d4] text-[#071021] px-4 py-2 mt-2 border border-[#334155] shadow-md hover:bg-[#14b8a6]"
+        whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+        whileTap={{ scale: 0.98 }}
+      >
+        Oval
+      </motion.button>
     </motion.div>
   );
-}   
+}

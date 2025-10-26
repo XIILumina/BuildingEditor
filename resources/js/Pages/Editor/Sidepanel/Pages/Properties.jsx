@@ -10,7 +10,7 @@ export default function Properties({
 }) {
   const [sizeUnit, setSizeUnit] = useState('px');
 
-  const pxPerInch = pxPerMeter / 39.37; // Approximate, 1 meter ≈ 39.37 inches
+  const pxPerInch = pxPerMeter / 39.3701; // 1 meter = 39.3701 inches
 
   const getDisplayedValue = (pxValue) => {
     if (pxValue === undefined || pxValue === null || pxValue === '') return '';
@@ -51,6 +51,21 @@ export default function Properties({
         return;
       }
     }
+    // Oval: allow independent radiusX/radiusY
+    if (selectedObject?.type === 'oval') {
+      if (property === 'width') {
+        updateSelectedProperty('radiusX', pxValue / 2);
+        return;
+      }
+      if (property === 'height') {
+        updateSelectedProperty('radiusY', pxValue / 2);
+        return;
+      }
+      if (property === 'radiusX' || property === 'radiusY') {
+        updateSelectedProperty(property, pxValue);
+        return;
+      }
+    }
     updateSelectedProperty(property, pxValue);
   };
 
@@ -58,6 +73,7 @@ export default function Properties({
     if (!obj) return '';
     if (obj.type === 'rect') return obj.width || '';
     if (obj.type === 'circle') return (obj.radius || 0) * 2;
+    if (obj.type === 'oval') return (obj.radiusX || 0) * 2;
     if (obj.isWall && obj.points && obj.points.length === 4) {
       const [x1, y1, x2, y2] = obj.points;
       return Math.hypot(x2 - x1, y2 - y1);
@@ -70,6 +86,7 @@ export default function Properties({
     if (!obj) return '';
     if (obj.type === 'rect') return obj.height || '';
     if (obj.type === 'circle') return (obj.radius || 0) * 2;
+    if (obj.type === 'oval') return (obj.radiusY || 0) * 2;
     const bbox = getBbox(obj);
     return bbox ? bbox.height : '';
   };
@@ -80,25 +97,36 @@ export default function Properties({
     return '';
   };
 
+  const getRadiusX = (obj) => {
+    if (!obj) return '';
+    if (obj.type === 'oval') return obj.radiusX || '';
+    return '';
+  };
+
+  const getRadiusY = (obj) => {
+    if (!obj) return '';
+    if (obj.type === 'oval') return obj.radiusY || '';
+    return '';
+  };
+
   const getX = (obj) => {
     if (!obj) return '';
-    if (typeof obj.x === 'number') return obj.x;
+    // Prefer explicit x; for strokes, use first point if x is undefined
+    if (Number.isFinite(obj.x)) return obj.x;
     if (obj.points && obj.points.length >= 2) return obj.points[0];
-    const bbox = getBbox(obj);
-    return bbox ? bbox.x : '';
+    return 0;
   };
 
   const getY = (obj) => {
     if (!obj) return '';
-    if (typeof obj.y === 'number') return obj.y;
+    if (Number.isFinite(obj.y)) return obj.y;
     if (obj.points && obj.points.length >= 2) return obj.points[1];
-    const bbox = getBbox(obj);
-    return bbox ? bbox.y : '';
+    return 0;
   };
 
   const getRotation = (obj) => {
     if (!obj) return '';
-    return obj.rotation || 0;
+    return Number.isFinite(obj.rotation) ? obj.rotation : 0;
   };
 
   const getBbox = (obj) => {
@@ -149,10 +177,13 @@ export default function Properties({
   const isEditable = (property) => {
     if (!selectedObject) return false;
     if (property === 'width' || property === 'height') {
-      return ['rect', 'circle', 'line', 'wall'].includes(selectedObject.type);
+      return ['rect', 'circle', 'oval', 'line', 'wall'].includes(selectedObject.type);
     }
     if (property === 'radius') {
       return selectedObject.type === 'circle';
+    }
+    if (property === 'radiusX' || property === 'radiusY') {
+      return selectedObject.type === 'oval';
     }
     if (property === 'x' || property === 'y' || property === 'rotation') {
       return true; // All objects can be moved or rotated
@@ -224,26 +255,72 @@ export default function Properties({
             <option>inches</option>
           </select>
         </div>
-        <div className="grid grid-cols-3 gap-2 mb-2">
-          <label className="block text-sm text-[#f3f4f6]">Radius</label>
-          <input
-            type="number"
-            step="0.1"
-            value={getDisplayedValue(getRadius(selectedObject))}
-            onChange={(e) => handleUpdate('radius', e.target.value)}
-            className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-            disabled={!isEditable('radius')}
-          />
-          <select
-            value={sizeUnit}
-            onChange={(e) => setSizeUnit(e.target.value)}
-            className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-          >
-            <option>px</option>
-            <option>meters</option>
-            <option>inches</option>
-          </select>
-        </div>
+        {selectedObject?.type === 'circle' && (
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            <label className="block text-sm text-[#f3f4f6]">Radius</label>
+            <input
+              type="number"
+              step="0.1"
+              value={getDisplayedValue(getRadius(selectedObject))}
+              onChange={(e) => handleUpdate('radius', e.target.value)}
+              className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+              disabled={!isEditable('radius')}
+            />
+            <select
+              value={sizeUnit}
+              onChange={(e) => setSizeUnit(e.target.value)}
+              className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+            >
+              <option>px</option>
+              <option>meters</option>
+              <option>inches</option>
+            </select>
+          </div>
+        )}
+        {selectedObject?.type === 'oval' && (
+          <>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              <label className="block text-sm text-[#f3f4f6]">Radius X</label>
+              <input
+                type="number"
+                step="0.1"
+                value={getDisplayedValue(getRadiusX(selectedObject))}
+                onChange={(e) => handleUpdate('radiusX', e.target.value)}
+                className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+                disabled={!isEditable('radiusX')}
+              />
+              <select
+                value={sizeUnit}
+                onChange={(e) => setSizeUnit(e.target.value)}
+                className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+              >
+                <option>px</option>
+                <option>meters</option>
+                <option>inches</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              <label className="block text-sm text-[#f3f4f6]">Radius Y</label>
+              <input
+                type="number"
+                step="0.1"
+                value={getDisplayedValue(getRadiusY(selectedObject))}
+                onChange={(e) => handleUpdate('radiusY', e.target.value)}
+                className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+                disabled={!isEditable('radiusY')}
+              />
+              <select
+                value={sizeUnit}
+                onChange={(e) => setSizeUnit(e.target.value)}
+                className="p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+              >
+                <option>px</option>
+                <option>meters</option>
+                <option>inches</option>
+              </select>
+            </div>
+          </>
+        )}
         {selectedObject?.type === 'text' && (
           <div className="mb-4">
             <label className="block text-sm mb-2 text-[#f3f4f6]">Text</label>
@@ -262,10 +339,13 @@ export default function Properties({
             <input
               type="number"
               step="1"
-              value={getX(selectedObject)}
-              onChange={(e) => handleUpdate('x', e.target.value)}
+              value={getDisplayedValue(getX(selectedObject))}
+              onChange={(e) => {
+                const px = updateToPx(e.target.value);
+                if (px !== null) updateSelectedProperty('x', px);
+              }}
               className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-              disabled={!isEditable('x')}
+              disabled={!selectedObject}
             />
           </div>
           <div>
@@ -273,10 +353,13 @@ export default function Properties({
             <input
               type="number"
               step="1"
-              value={getY(selectedObject)}
-              onChange={(e) => handleUpdate('y', e.target.value)}
+              value={getDisplayedValue(getY(selectedObject))}
+              onChange={(e) => {
+                const px = updateToPx(e.target.value);
+                if (px !== null) updateSelectedProperty('y', px);
+              }}
               className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-              disabled={!isEditable('y')}
+              disabled={!selectedObject}
             />
           </div>
         </div>
@@ -285,10 +368,13 @@ export default function Properties({
           <input
             type="number"
             step="1"
-            value={getRotation(selectedObject)}
-            onChange={(e) => handleUpdate('rotation', e.target.value)}
+            value={getDisplayedValue(getRotation(selectedObject))}
+            onChange={(e) => {
+              const deg = parseFloat(e.target.value);
+              if (!isNaN(deg)) updateSelectedProperty('rotation', deg);
+            }}
             className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-            disabled={!isEditable('rotation')}
+            disabled={!selectedObject}
           />
         </div>
       </div>

@@ -1089,6 +1089,27 @@ export default function Template({
                 );
               }
               if (sh.type === "circle") {
+               // If circle has radiusX/radiusY, render as Ellipse
+               if (sh.radiusX !== undefined && sh.radiusY !== undefined) {
+                 return (
+                   <Ellipse
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={sh.color || "#9CA3AF"}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               // Otherwise true circle
                 return (
                   <Circle
                     key={sh.id}

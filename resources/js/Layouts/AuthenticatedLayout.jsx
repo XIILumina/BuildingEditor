@@ -34,7 +34,7 @@ export default function AuthenticatedLayout({ header, children }) {
             <Link href="/" className="flex items-center space-x-2">
               <ApplicationLogo className="h-9 w-auto text-cyan-400" />
               <span className="text-2xl font-extrabold bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent">
-                BlueprintApp
+                BlueprintOS
               </span>
             </Link>
           </div>

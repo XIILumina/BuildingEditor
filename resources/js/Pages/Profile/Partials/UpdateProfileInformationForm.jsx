@@ -42,7 +42,7 @@ export default function UpdateProfileInformation({
 
                     <TextInput
                         id="name"
-                        className="mt-1 block w-full"
+                        className="mt-1 block w-full bg-gray-800"
                         value={data.name}
                         onChange={(e) => setData('name', e.target.value)}
                         required
@@ -59,7 +59,7 @@ export default function UpdateProfileInformation({
                     <TextInput
                         id="email"
                         type="email"
-                        className="mt-1 block w-full"
+                        className="mt-1 block w-full bg-gray-800"
                         value={data.email}
                         onChange={(e) => setData('email', e.target.value)}
                         required

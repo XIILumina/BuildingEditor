@@ -52,6 +52,7 @@ export default function Editor({ projectId }) {
   const [material, setMaterial] = useState("Brick");
   const [gridSize, setGridSize] = useState(10);
   const [units, setUnits] = useState("Metric");
+  const [pxPerMeter, setPxPerMeter] = useState(100); // default 100px = 1 meter
   const [sidepanelMode, setSidepanelMode] = useState("properties");
   const [projectName, setProjectName] = useState("Untitled Project");
   const [strokes, setStrokes] = useState([]);
@@ -252,6 +253,7 @@ const confirmPreview = useCallback(() => {
         if (data.shapes) setShapes(data.shapes);
         if (data.gridSize) setGridSize(data.gridSize);
         if (data.units) setUnits(data.units);
+        if (data.pxPerMeter) setPxPerMeter(data.pxPerMeter);
         if (data.drawColor) setDrawColor(data.drawColor);
         if (data.thickness) setThickness(data.thickness);
         if (data.material) setMaterial(data.material);
@@ -279,6 +281,7 @@ const confirmPreview = useCallback(() => {
           shapes,
           gridSize,
           units,
+          pxPerMeter,
           drawColor,
           thickness,
           material,
@@ -294,7 +297,7 @@ const confirmPreview = useCallback(() => {
     } finally {
       saveInProgress.current = false;
     }
-  }, [projectId, strokes, erasers, shapes, gridSize, units, drawColor, thickness, material, projectName, layers]);
+  }, [projectId, strokes, erasers, shapes, gridSize, units, pxPerMeter, drawColor, thickness, material, projectName, layers]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -364,10 +367,26 @@ const selectedObject = useMemo(() => {
   const updateSelectedProperty = useCallback((property, value) => {
     if (!selectedId || Array.isArray(selectedId)) return;
     pushHistory(`update-${property}`);
+
     if (strokes.some(s => s.id === selectedId)) {
       setStrokes(prev => prev.map(s => {
         if (s.id !== selectedId) return s;
         let newS = { ...s };
+        
+        // Handle X/Y updates for strokes
+        if (property === 'x' || property === 'y') {
+          // If stroke has explicit x/y, update it
+          if (Number.isFinite(s.x) && Number.isFinite(s.y)) {
+            newS[property] = value;
+          } else if (Array.isArray(s.points) && s.points.length >= 2) {
+            // Otherwise shift all points
+            const delta = property === 'x' ? value - s.points[0] : value - s.points[1];
+            const idx = property === 'x' ? 0 : 1;
+            newS.points = s.points.map((p, i) => (i % 2 === idx) ? p + delta : p);
+          }
+          return newS;
+        }
+
         if (property === 'length' && s.isWall && s.points.length === 4) {
           const [x1, y1, x2, y2] = s.points;
           const dx = x2 - x1;
@@ -379,15 +398,22 @@ const selectedObject = useMemo(() => {
         }
         return newS;
       }));
+      setSaveState('unsaved');
     } else if (shapes.some(sh => sh.id === selectedId)) {
       setShapes(prev => prev.map(sh => {
         if (sh.id !== selectedId) return sh;
         let newSh = { ...sh };
+        if (property === 'x') newSh.x = value;
+        else if (property === 'y') newSh.y = value;
+        else if (property === 'rotation') newSh.rotation = value;
         if (property === 'width') newSh.width = value;
         else if (property === 'height') newSh.height = value;
         else if (property === 'radius') newSh.radius = value;
+        else if (property === 'radiusX') newSh.radiusX = value;
+        else if (property === 'radiusY') newSh.radiusY = value;
         return newSh;
       }));
+      setSaveState('unsaved');
     }
   }, [selectedId, strokes, shapes, pushHistory]);
 
@@ -608,6 +634,11 @@ const selectedObject = useMemo(() => {
       base.x = 200; 
       base.y = 200; 
       base.radius = 40;
+    } else if (type === "oval") {
+      base.x = 200;
+      base.y = 200;
+      base.radiusX = 60;
+      base.radiusY = 40;
     } 
     setShapes((s) => [...s, base]);
   }, [pushHistory, activeLayerId]);
@@ -898,6 +929,8 @@ useEffect(() => {
             clearAiMessages={clearAiMessages}
             makeAnchorBlock={handleCreateAnchorBlock}
             mergeSelected={mergeSelected}
+            pxPerMeter={pxPerMeter}
+            setPxPerMeter={setPxPerMeter}
           />
         </motion.div>
       </div>
