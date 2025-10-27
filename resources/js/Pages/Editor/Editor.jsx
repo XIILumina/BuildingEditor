@@ -42,6 +42,9 @@ const askAIDraw = async (prompt, projectData) => {
   }
 };
 
+// Generate stable integer IDs (avoid floats so selection works immediately)
+const newId = () => Date.now() + Math.floor(Math.random() * 10000);
+
 export default function Editor({ projectId }) {
   const page = usePage();
   const auth = page?.props?.auth || { user: null };
@@ -119,7 +122,6 @@ const handleCreateAnchorBlock = () => {
 const confirmPreview = useCallback(() => {
   pushHistory("confirm-ai-draw");
 
-  // Validate and map preview strokes (keep as-is, but relax layer_id/rotation defaults)
   const validatedStrokes = (previewStrokes || [])
     .filter((stroke) => {
       const isValid =
@@ -128,107 +130,54 @@ const confirmPreview = useCallback(() => {
         typeof stroke.color === "string" &&
         typeof stroke.thickness === "number" &&
         typeof stroke.isWall === "boolean";
-      if (!isValid) console.warn("Invalid stroke:", stroke);
       return isValid;
     })
     .map((stroke) => ({
+      id: newId(),
       ...stroke,
-      id: Date.now() + Math.random(),
       layer_id: Number.isFinite(stroke.layer_id) ? stroke.layer_id : activeLayerId,
       rotation: Number.isFinite(stroke.rotation) ? stroke.rotation : 0,
     }));
 
-  // Helpers
   const isFiniteNum = (v) => typeof v === "number" && Number.isFinite(v);
   const normalizeEllipseType = (t) => (t === "ellipse" ? "oval" : t);
 
   function normalizeShape(shape) {
     if (!shape || typeof shape !== "object") return null;
-
     const type = normalizeEllipseType(String(shape.type || "").toLowerCase());
-    // default id/rotation/layer
     const out = {
-      id: Date.now() + Math.random(),
+      id: newId(),
       type,
       rotation: isFiniteNum(shape.rotation) ? shape.rotation : 0,
       layer_id: Number.isFinite(shape.layer_id) ? shape.layer_id : activeLayerId,
     };
 
     if (type === "rect") {
-      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.width) && isFiniteNum(shape.height))) {
-        console.warn("Invalid rect:", shape);
-        return null;
-      }
-      return {
-        ...out,
-        x: shape.x,
-        y: shape.y,
-        width: shape.width,
-        height: shape.height,
-        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
-      };
+      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.width) && isFiniteNum(shape.height))) return null;
+      return { ...out, x: shape.x, y: shape.y, width: shape.width, height: shape.height, color: typeof shape.color === "string" ? shape.color : "#9CA3AF" };
     }
-
     if (type === "circle") {
-      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.radius))) {
-        console.warn("Invalid circle:", shape);
-        return null;
-      }
-      return {
-        ...out,
-        x: shape.x,
-        y: shape.y,
-        radius: shape.radius,
-        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
-      };
+      if (!(isFiniteNum(shape.x) && isFiniteNum(shape.y) && isFiniteNum(shape.radius))) return null;
+      return { ...out, x: shape.x, y: shape.y, radius: shape.radius, color: typeof shape.color === "string" ? shape.color : "#9CA3AF" };
     }
-
     if (type === "oval") {
-      // Accept 'ellipse' from AI; require radiusX/radiusY
       const x = isFiniteNum(shape.x) ? shape.x : null;
       const y = isFiniteNum(shape.y) ? shape.y : null;
       const rx = isFiniteNum(shape.radiusX) ? shape.radiusX : null;
       const ry = isFiniteNum(shape.radiusY) ? shape.radiusY : null;
-      if (x === null || y === null || rx === null || ry === null) {
-        console.warn("Invalid oval/ellipse:", shape);
-        return null;
-      }
-      return {
-        ...out,
-        x,
-        y,
-        radiusX: rx,
-        radiusY: ry,
-        color: typeof shape.color === "string" ? shape.color : "#9CA3AF",
-      };
+      if (x === null || y === null || rx === null || ry === null) return null;
+      return { ...out, x, y, radiusX: rx, radiusY: ry, color: typeof shape.color === "string" ? shape.color : "#9CA3AF" };
     }
-
     if (type === "polygon") {
       const pts = Array.isArray(shape.points) ? shape.points : [];
-      // need at least 3 points => length >= 6 and even-length array
-      if (pts.length < 6 || pts.length % 2 !== 0 || !pts.every((n) => isFiniteNum(n))) {
-        console.warn("Invalid polygon points:", shape);
-        return null;
-      }
-      // prefer fill; fall back to color
+      if (pts.length < 6 || pts.length % 2 !== 0 || !pts.every((n) => isFiniteNum(n))) return null;
       const fill = typeof shape.fill === "string" ? shape.fill : (typeof shape.color === "string" ? shape.color : "#9CA3AF");
-      return {
-        ...out,
-        points: pts,
-        fill,
-        closed: typeof shape.closed === "boolean" ? shape.closed : true,
-        x: Number.isFinite(shape.x) ? shape.x : 0,
-        y: Number.isFinite(shape.y) ? shape.y : 0,
-      };
+      return { ...out, points: pts, fill, closed: typeof shape.closed === "boolean" ? shape.closed : true, x: Number.isFinite(shape.x) ? shape.x : 0, y: Number.isFinite(shape.y) ? shape.y : 0 };
     }
-
-    console.warn("Unsupported shape type:", shape);
     return null;
   }
 
-  const validatedShapes = (previewShapes || [])
-    .map(normalizeShape)
-    .filter(Boolean);
+  const validatedShapes = (previewShapes || []).map(normalizeShape).filter(Boolean);
 
   setStrokes((prev) => [...prev, ...validatedStrokes]);
   setShapes((prev) => [...prev, ...validatedShapes]);
@@ -261,14 +210,12 @@ const confirmPreview = useCallback(() => {
         if (project.name) setProjectName(project.name);
         if (project.layers && project.layers.length > 0) {
           setLayers(project.layers);
-          // Prefer saved active layer; otherwise infer from content; fallback to last layer in list
           let nextActive = Number.isFinite(data.activeLayerId) ? Number(data.activeLayerId) : null;
           if (!Number.isFinite(nextActive)) {
             const layerIds = [];
             if (Array.isArray(data.shapes)) layerIds.push(...data.shapes.map(s => Number(s.layer_id)).filter(Number.isFinite));
             if (Array.isArray(data.strokes)) layerIds.push(...data.strokes.map(s => Number(s.layer_id)).filter(Number.isFinite));
             if (layerIds.length) {
-              // Pick the layer with the most items; ties -> highest id
               const counts = layerIds.reduce((acc, id) => (acc[id] = (acc[id] || 0) + 1, acc), {});
               const sorted = Object.entries(counts).sort((a, b) => (b[1] - a[1]) || (Number(b[0]) - Number(a[0])));
               nextActive = Number(sorted[0][0]);
@@ -277,33 +224,6 @@ const confirmPreview = useCallback(() => {
             }
           }
           setActiveLayerId(nextActive);
-          // Debug layer distribution
-          if (Array.isArray(data.shapes) || Array.isArray(data.strokes)) {
-            const counts = {};
-            (data.shapes || []).forEach(s => { const k = s.layer_id; counts[k] = counts[k] || { shapes: 0, strokes: 0 }; counts[k].shapes++; });
-            (data.strokes || []).forEach(s => { const k = s.layer_id; counts[k] = counts[k] || { shapes: 0, strokes: 0 }; counts[k].strokes++; });
-            console.groupCollapsed('[DEBUG] layer content counts');
-            console.table(Object.entries(counts).map(([lid, v]) => ({ layer_id: Number(lid), shapes: v.shapes, strokes: v.strokes })));
-            console.log('[DEBUG] selected activeLayerId:', nextActive);
-            console.groupEnd();
-          }
-        }
-        // Debug: inspect shapes and layer id types
-        if (Array.isArray(data.shapes)) {
-          console.groupCollapsed('[DEBUG] Shapes after load');
-          console.table(
-            data.shapes.map(s => ({
-              id: s.id,
-              type: s.type,
-              layer_id: s.layer_id,
-              layer_id_type: typeof s.layer_id,
-              radius: s.radius,
-              color: s.color,
-              fill: s.fill
-            }))
-          );
-          console.log('[DEBUG] activeLayerId (state may update shortly):', activeLayerId, 'type:', typeof activeLayerId);
-          console.groupEnd();
         }
       })
       .catch((err) => {

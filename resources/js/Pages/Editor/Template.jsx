@@ -150,18 +150,45 @@ export default function Template({
 
     const hitShapeIds = shapes
       .filter((sh) => isSameLayer(sh.layer_id))
+      // Optional: skip locked/anchored shapes
+      .filter((sh) => !(sh.locked || sh.anchoredBlockId))
       .filter((sh) => {
         if (sh.type === "rect") {
           return (
-            world.x >= sh.x &&
-            world.x <= sh.x + (sh.width || 0) &&
-            world.y >= sh.y &&
-            world.y <= sh.y + (sh.height || 0)
+            world.x >= (sh.x || 0) &&
+            world.x <= (sh.x || 0) + (sh.width || 0) &&
+            world.y >= (sh.y || 0) &&
+            world.y <= (sh.y || 0) + (sh.height || 0)
           );
-        } else if (sh.type === "circle") {
-          const dx = world.x - sh.x;
-          const dy = world.y - sh.y;
+        }
+        if (sh.type === "circle") {
+          const dx = world.x - (sh.x || 0);
+          const dy = world.y - (sh.y || 0);
           return Math.hypot(dx, dy) <= (sh.radius || 0);
+        }
+        if (sh.type === "oval") {
+          const rx = sh.radiusX || 0;
+          const ry = sh.radiusY || 0;
+          if (rx <= 0 || ry <= 0) return false;
+          const dx = (world.x - (sh.x || 0)) / rx;
+          const dy = (world.y - (sh.y || 0)) / ry;
+          return dx * dx + dy * dy <= 1;
+        }
+        if (sh.type === "polygon" && Array.isArray(sh.points)) {
+          const offX = Number(sh.x) || 0;
+          const offY = Number(sh.y) || 0;
+          const pairs = [];
+          for (let i = 0; i < sh.points.length; i += 2) {
+            const px = (sh.points[i] || 0) + offX;
+            const py = (sh.points[i + 1] || 0) + offY;
+            if (Number.isFinite(px) && Number.isFinite(py)) {
+              pairs.push([px, py]);
+            }
+          }
+          if (pairs.length >= 3) {
+            return isPointInPolygon([world.x, world.y], pairs);
+          }
+          return false;
         }
         return false;
       })
