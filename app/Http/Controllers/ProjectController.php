@@ -405,23 +405,42 @@ class ProjectController extends Controller
         $data = $request->validate([
             'layer_id' => 'required|integer|exists:layers,id',
             'object_ids' => 'required|array',
+            // points/width/height/anchor_x/anchor_y may be present in some callers
+            'points' => 'sometimes|array',
+            'width' => 'sometimes|numeric',
+            'height' => 'sometimes|numeric',
+            'anchor_x' => 'sometimes|numeric',
+            'anchor_y' => 'sometimes|numeric',
         ]);
 
-        $objects = Shape::whereIn('id', $data['object_ids'])->get();
+        $round = function($v) { return is_numeric($v) ? round((float)$v, 1) : $v; };
+        $roundDeep = function($val) use (&$roundDeep, $round) {
+            if (is_array($val)) return array_map($roundDeep, $val);
+            return $round($val);
+        };
 
-        // Calculate bounding box
-        $minX = $objects->min('x');
-        $minY = $objects->min('y');
-        $maxX = $objects->max(function($obj) { return $obj->x + ($obj->width ?? $obj->radius ?? 0); });
-        $maxY = $objects->max(function($obj) { return $obj->y + ($obj->height ?? $obj->radius ?? 0); });
+        // Round optional geometry inputs
+        if (isset($data['points'])) $data['points'] = $roundDeep($data['points']);
+        if (isset($data['width'])) $data['width'] = $round($data['width']);
+        if (isset($data['height'])) $data['height'] = $round($data['height']);
+        if (isset($data['anchor_x'])) $data['anchor_x'] = $round($data['anchor_x']);
+        if (isset($data['anchor_y'])) $data['anchor_y'] = $round($data['anchor_y']);
 
-        $width = $maxX - $minX;
-        $height = $maxY - $minY;
-        $anchor_x = $minX + ($width / 2);
-        $anchor_y = $minY + ($height / 2);
+        $objects = \App\Models\Shape::whereIn('id', $data['object_ids'])->get();
 
-        $block = Block::create([
-            'layer_id' => $data['layer_id'],
+        // Calculate bounding box (rounded to 0.1)
+        $minX = $objects->min('x') ?? 0;
+        $minY = $objects->min('y') ?? 0;
+        $maxX = $objects->max(function($obj) { return ($obj->x ?? 0) + ($obj->width ?? $obj->radius ?? 0); }) ?? 0;
+        $maxY = $objects->max(function($obj) { return ($obj->y ?? 0) + ($obj->height ?? $obj->radius ?? 0); }) ?? 0;
+
+        $width = round($maxX - $minX, 1);
+        $height = round($maxY - $minY, 1);
+        $anchor_x = round($minX + ($width / 2), 1);
+        $anchor_y = round($minY + ($height / 2), 1);
+
+        $block = \App\Models\Block::create([
+            'layer_id' => (int)$data['layer_id'],
             'object_ids' => json_encode($data['object_ids']),
             'width' => $width,
             'height' => $height,

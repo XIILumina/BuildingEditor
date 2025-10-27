@@ -42,6 +42,50 @@ const askAIDraw = async (prompt, projectData) => {
   }
 };
 
+// Round helpers
+const roundTo = (n, step = 0.1) => {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return n;
+  return Math.round(x / step) * step;
+};
+
+// Deeply round all numeric values; integers remain integers
+const deepRound = (val, step = 0.1) => {
+  if (Array.isArray(val)) return val.map((v) => deepRound(v, step));
+  if (val && typeof val === "object") {
+    const out = {};
+    for (const k in val) out[k] = deepRound(val[k], step);
+    return out;
+  }
+  if (typeof val === "number") return roundTo(val, step);
+  return val;
+};
+
+// Create a compact version of project data for AI (reduces token size)
+const compactProjectData = (data) => {
+  const d = JSON.parse(JSON.stringify(data || {}));
+  d.strokes = (d.strokes || []).map((s) => ({
+    ...s,
+    points: Array.isArray(s.points) ? s.points.map((p) => roundTo(p, 0.1)) : [],
+    thickness: roundTo(s.thickness ?? 0, 0.1),
+    rotation: roundTo(s.rotation ?? 0, 0.1),
+  }));
+  d.shapes = (d.shapes || []).map((sh) => {
+    const base = { ...sh };
+    base.x = roundTo(base.x ?? 0, 0.1);
+    base.y = roundTo(base.y ?? 0, 0.1);
+    if (base.width != null) base.width = roundTo(base.width, 0.1);
+    if (base.height != null) base.height = roundTo(base.height, 0.1);
+    if (base.radius != null) base.radius = roundTo(base.radius, 0.1);
+    if (base.radiusX != null) base.radiusX = roundTo(base.radiusX, 0.1);
+    if (base.radiusY != null) base.radiusY = roundTo(base.radiusY, 0.1);
+    base.rotation = roundTo(base.rotation ?? 0, 0.1);
+    if (Array.isArray(base.points)) base.points = base.points.map((p) => roundTo(p, 0.1));
+    return base;
+  });
+  return d;
+};
+
 // Generate stable integer IDs (avoid floats so selection works immediately)
 const newId = () => Date.now() + Math.floor(Math.random() * 10000);
 
@@ -108,15 +152,12 @@ const handleCreateAnchorBlock = () => {
   if (selectedObjects.length === 0) return;
 
   const blockData = makeAnchorBlock(selectedObjects);
+  // Round everything to 0.1 before sending to BE
+  const rounded = deepRound({ layer_id: activeLayerId, ...blockData }, 0.1);
 
-  // Send blockData to backend or add to local state
-  // Example: Save to backend
-  axios.post('/editor/anchor-block/store', {
-    layer_id: activeLayerId,
-    ...blockData
-  }).then(res => {
+  axios.post('/editor/anchor-block/store', rounded).then(res => {
     // Optionally update frontend state with new block
-    console.log('Block created:', res.data.block);
+    // ...
   });
 };
 
@@ -406,7 +447,8 @@ const selectedObject = useMemo(() => {
 
     try {
       if (isDrawRequest) {
-        const projectData = { strokes, shapes, layers, activeLayerId };
+        // Use compact project data to reduce JSON tokens
+        const projectData = compactProjectData({ strokes, shapes, layers, activeLayerId, gridSize });
         const result = await askAIDraw(aiPrompt, projectData);
         if (result.success) {
           setPreviewStrokes(result.data.strokes || []);
@@ -447,7 +489,7 @@ const selectedObject = useMemo(() => {
     } finally {
       setAiBusy(false);
     }
-  }, [aiPrompt, strokes, shapes, layers, activeLayerId]);
+  }, [aiPrompt, strokes, shapes, layers, activeLayerId, gridSize]);
 
   const clearAiMessages = useCallback(() => {
     setAiMessages([]);
@@ -489,7 +531,7 @@ const selectedObject = useMemo(() => {
       }
       if (e.key.toLowerCase() === "f") {
         setTool("freedraw");
-        return;
+        return; 
       }
       if (e.key.toLowerCase() === "s") {
         setTool("select");
@@ -690,24 +732,35 @@ const bboxOfItem = (id) => {
 
 const mergeSelected = useCallback(() => {
   const ids = Array.isArray(selectedId) ? selectedId : (selectedId ? [selectedId] : []);
-  if (ids.length !== 2) {
-    alert("Select exactly 2 items to merge.");
+  if (ids.length < 2) {
+    alert("Select 2 or more items to merge.");
     return;
   }
-  const items = ids.map(id => strokes.find(s => s.id === id) || shapes.find(sh => sh.id === id)).filter(Boolean);
-  if (items.length !== 2) return;
+  // Resolve items (strokes or shapes) by id
+  const items = ids
+    .map(id => strokes.find(s => s.id === id) || shapes.find(sh => sh.id === id))
+    .filter(Boolean);
+  if (items.length !== ids.length) {
+    alert("Some selected items were not found.");
+    return;
+  }
+  // Enforce same-layer merge
   const layerIds = new Set(items.map(it => it.layer_id));
   if (layerIds.size !== 1) {
-    alert("Both items must be on the same layer.");
+    alert("All selected items must be on the same layer.");
     return;
   }
   const layerId = items[0].layer_id;
+  // Compute union bounding box
   const bboxes = ids.map(bboxOfItem).filter(Boolean);
-  if (bboxes.length !== 2) return;
-  const minX = Math.min(bboxes[0].x, bboxes[1].x);
-  const minY = Math.min(bboxes[0].y, bboxes[1].y);
-  const maxX = Math.max(bboxes[0].x + bboxes[0].width, bboxes[1].x + bboxes[1].width);
-  const maxY = Math.max(bboxes[0].y + bboxes[0].height, bboxes[1].y + bboxes[1].height);
+  if (bboxes.length !== ids.length) {
+    alert("Could not compute bounds for all items.");
+    return;
+  }
+  const minX = Math.min(...bboxes.map(b => b.x));
+  const minY = Math.min(...bboxes.map(b => b.y));
+  const maxX = Math.max(...bboxes.map(b => b.x + b.width));
+  const maxY = Math.max(...bboxes.map(b => b.y + b.height));
   const block = {
     id: Date.now(),
     memberIds: ids.slice(),
@@ -717,12 +770,14 @@ const mergeSelected = useCallback(() => {
     width: maxX - minX,
     height: maxY - minY,
   };
-  // lock members
+  // History and lock members
+  pushHistory('merge');
   setStrokes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: true } : s));
   setShapes(prev => prev.map(s => ids.includes(s.id) ? { ...s, locked: true } : s));
   setMergedBlocks(prev => [...prev, block]);
   setSelectedId(null);
-}, [selectedId, strokes, shapes, setStrokes, setShapes]);
+  setSaveState('unsaved');
+}, [selectedId, strokes, shapes, setStrokes, setShapes, setMergedBlocks, pushHistory, setSaveState]);
 
 const unmergeBlock = useCallback((blockId) => {
   const blk = mergedBlocks.find(b => b.id === blockId);

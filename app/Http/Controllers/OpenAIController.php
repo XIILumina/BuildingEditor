@@ -67,51 +67,61 @@ class OpenAIController extends Controller
         $prompt = $request->input('prompt');
         $projectData = json_decode($request->input('projectData'), true);
 
-        // Extract grid and active layer for normalization
         $gridSize = (int)($projectData['gridSize'] ?? 10);
         if ($gridSize < 2) $gridSize = 10;
         if ($gridSize > 200) $gridSize = 200;
         $activeLayerId = (int)($projectData['activeLayerId'] ?? ($projectData['layers'][0]['id'] ?? 1));
 
+        $limits = [
+            'max_strokes' => (int) env('AI_MAX_STROKES', 60),
+            'max_shapes' => (int) env('AI_MAX_SHAPES', 80),
+            'max_points_per_stroke' => (int) env('AI_MAX_POINTS_PER_STROKE', 200),
+            'max_points_per_polygon' => (int) env('AI_MAX_POINTS_PER_POLYGON', 200),
+            'max_total_points' => (int) env('AI_MAX_TOTAL_POINTS', 4000),
+        ];
+
         $encodedProjectData = json_encode($projectData);
 
-        // Tighter system prompt + schema + examples
+        // Clean, comment-free format instructions + explicit wall rounding
         $systemPrompt = <<<EOD
-You produce only valid JSON for a floorplan canvas. Snap all coordinates to a grid (gridSize multiples, default 10). Prefer axis-aligned shapes, orthogonal walls, and closed polygons where appropriate.
+You produce only valid JSON for a floorplan canvas. Snap all coordinates to a grid (multiples of gridSize, default 10). Round all wall endpoints to grid multiples. Prefer axis-aligned shapes, orthogonal walls, and closed polygons.
 
-Output format:
+HARD LIMITS (do not exceed):
+- Max strokes: {$limits['max_strokes']}
+- Max shapes: {$limits['max_shapes']}
+- Max points per stroke: {$limits['max_points_per_stroke']}
+- Max points per polygon: {$limits['max_points_per_polygon']}
+- Max total points: {$limits['max_total_points']}
+If you would exceed a limit, simplify to stay within limits.
+
+Output format (no comments, only these keys):
 {
   "strokes": [
     {"id": number, "points": number[], "color": "#RRGGBB", "thickness": number, "isWall": boolean, "layer_id": number, "material": string, "rotation": number}
   ],
   "shapes": [
-    // Rect
     {"id": number, "type": "rect", "x": number, "y": number, "width": number, "height": number, "color": "#RRGGBB", "rotation": number, "layer_id": number},
-    // Circle
     {"id": number, "type": "circle", "x": number, "y": number, "radius": number, "color": "#RRGGBB", "rotation": number, "layer_id": number},
-    // Oval (ellipse)
     {"id": number, "type": "oval", "x": number, "y": number, "radiusX": number, "radiusY": number, "color": "#RRGGBB", "rotation": number, "layer_id": number},
-    // Polygon (filled area like room/furniture)
     {"id": number, "type": "polygon", "x": number, "y": number, "points": number[], "fill": "#RRGGBB", "color": "#RRGGBB", "closed": true, "layer_id": number, "rotation": number}
   ]
 }
 
 Rules:
-- Use only the fields shown above. Do not include other keys.
-- Numbers must be integers (multiples of gridSize).
-- Colors must be hex (#rrggbb).
-- points is an even-length array: [x1,y1,x2,y2,...]; for polygons use >= 6 values (>= 3 vertices).
-- For polygons: set x,y to the min point (top-left) of the polygon’s bbox, and make points relative to (0,0).
-- For rooms: prefer polygon with closed=true, or rects for axis-aligned rooms.
-- For walls: use strokes with isWall=true, straight segments, endpoints aligned on the grid.
-- Use the existing layer_id when appropriate (fall back to the active layer id).
+- Use only the keys shown above. No extra keys, no comments.
+- All numbers are integers and multiples of gridSize.
+- Colors are hex (#rrggbb).
+- points arrays are even-length; polygons use >= 6 values.
+- For polygons: set x,y to min x/y of bbox; make points relative to (0,0).
+- For walls: use strokes with isWall=true, straight segments, grid-aligned endpoints.
+- Use existing layer_id when appropriate; otherwise use activeLayerId.
 
 Context:
 gridSize: {$gridSize}
 Current project data:
 {$encodedProjectData}
 
-Produce only a JSON object. No markdown fences.
+Return only a JSON object. No markdown fences.
 EOD;
 
         $messages = [
@@ -119,15 +129,17 @@ EOD;
             ['role' => 'user', 'content' => $prompt],
         ];
 
+        $model = $request->input('model', env('AI_MODEL', 'gpt-4.1'));
+        $maxTokens = (int) env('AI_MAX_TOKENS', 4096);
+
         try {
             $response = $client->chat()->create([
-                'model' => $request->input('model', 'gpt-4.1'),
+                'model' => $model,
                 'messages' => $messages,
-                'temperature' => 0.15,
+                'temperature' => (float) env('AI_TEMPERATURE', 0.15),
                 'top_p' => 0.95,
-                // Force JSON (many models honor this)
                 'response_format' => ['type' => 'json_object'],
-                'max_tokens' => 1200,
+                'max_tokens' => $maxTokens,
             ]);
 
             if (!isset($response->choices[0]->message->content)) {
@@ -138,9 +150,7 @@ EOD;
             $content = $response->choices[0]->message->content;
             \Log::debug("OpenAI response content: " . $content);
 
-            // When response_format=json_object, content is already raw JSON
             $jsonString = $content;
-            // Fallback if the model ignored json_object and used ```json
             if (strpos($content, '```json') !== false && strrpos($content, '```') !== false) {
                 $start = strpos($content, '```json') + 7;
                 $end = strrpos($content, '```');
@@ -149,12 +159,34 @@ EOD;
 
             $raw = json_decode($jsonString, true);
             if (json_last_error() !== JSON_ERROR_NONE || !is_array($raw)) {
-                \Log::error("Invalid JSON from AI: " . $jsonString);
-                throw new \Exception("Invalid JSON generated by AI");
+                // Retry once with stricter caps to avoid truncation
+                \Log::warning("AI JSON invalid, retrying with tighter limits.");
+                $tightLimits = $limits;
+                $tightLimits['max_strokes'] = min($limits['max_strokes'], 20);
+                $tightLimits['max_shapes'] = min($limits['max_shapes'], 30);
+                $retrySystem = $this->tightPrompt($gridSize, $encodedProjectData, $tightLimits);
+                $retryMessages = [
+                    ['role' => 'system', 'content' => $retrySystem],
+                    ['role' => 'user', 'content' => 'Your previous output was invalid or cut off. Return a smaller JSON object within the limits.'],
+                ];
+                $retryResp = $client->chat()->create([
+                    'model' => $model,
+                    'messages' => $retryMessages,
+                    'temperature' => (float) env('AI_TEMPERATURE', 0.15),
+                    'top_p' => 0.95,
+                    'response_format' => ['type' => 'json_object'],
+                    'max_tokens' => $maxTokens,
+                ]);
+                $retryContent = $retryResp->choices[0]->message->content ?? '';
+                \Log::debug("OpenAI retry content: " . $retryContent);
+                $raw = json_decode($retryContent, true);
+                if (json_last_error() !== JSON_ERROR_NONE || !is_array($raw)) {
+                    \Log::error("Invalid JSON from AI (retry).");
+                    throw new \Exception("Invalid JSON generated by AI");
+                }
             }
 
-            // Normalize/validate/snap before returning to FE
-            $clean = $this->normalizeAiDrawing($raw, $activeLayerId, $gridSize);
+            $clean = $this->normalizeAiDrawing($raw, $activeLayerId, $gridSize, $limits);
 
             return response()->json([
                 'success' => true,
@@ -169,10 +201,41 @@ EOD;
         }
     }
 
+    // Helper to build a tighter prompt on retry
+    private function tightPrompt(int $gridSize, string $encodedProjectData, array $limits): string
+    {
+        return <<<EOD
+You must return a valid JSON object only. Keep output short. Respect these HARD LIMITS:
+- Max strokes: {$limits['max_strokes']}
+- Max shapes: {$limits['max_shapes']}
+- Max points per stroke: {$limits['max_points_per_stroke']}
+- Max points per polygon: {$limits['max_points_per_polygon']}
+- Max total points: {$limits['max_total_points']}
+
+All coordinates must be integers and multiples of gridSize. Round wall endpoints to grid.
+
+Format:
+{"strokes":[...],"shapes":[...]}
+
+gridSize: {$gridSize}
+Current project data:
+{$encodedProjectData}
+EOD;
+    }
+
     // --- Helpers ---
 
-    private function normalizeAiDrawing(array $data, int $activeLayerId, int $gridSize): array
+    private function normalizeAiDrawing(array $data, int $activeLayerId, int $gridSize, array $limits = []): array
     {
+        // Defaults if not provided
+        $limits = array_merge([
+            'max_strokes' => 100,
+            'max_shapes' => 120,
+            'max_points_per_stroke' => 200,
+            'max_points_per_polygon' => 200,
+            'max_total_points' => 4000,
+        ], $limits);
+
         $hex = '/^#([A-Fa-f0-9]{6})$/';
         $snap = function ($n) use ($gridSize) {
             if (!is_numeric($n)) return 0;
@@ -189,21 +252,38 @@ EOD;
             }
             return $out;
         };
+        $trimPoints = function(array $pts, int $maxLen) {
+            if ($maxLen <= 0) return [];
+            if (count($pts) <= $maxLen) return $pts;
+            // Keep even length
+            $maxLen = $maxLen - ($maxLen % 2);
+            return array_slice($pts, 0, max(0, $maxLen));
+        };
+
+        $totalPoints = 0;
 
         $outStrokes = [];
         foreach (($data['strokes'] ?? []) as $s) {
+            if (count($outStrokes) >= $limits['max_strokes']) break;
             if (!is_array($s)) continue;
             $pts = $s['points'] ?? null;
             if (!is_array($pts) || count($pts) < 4) continue;
+            // Enforce per-stroke and total points limits
+            $room = max(0, $limits['max_total_points'] - $totalPoints);
+            if ($room < 4) break;
+            $maxForThis = min($limits['max_points_per_stroke'], $room);
+            $pts = $trimPoints($pts, $maxForThis);
+            if (count($pts) < 4) continue;
 
             $color = is_string($s['color'] ?? null) && preg_match($hex, $s['color']) ? $s['color'] : '#9ca3af';
             $thickness = isset($s['thickness']) ? (int)$s['thickness'] : 2;
             if ($thickness < 1) $thickness = 1;
             if ($thickness > 200) $thickness = 200;
 
+            $snapPts = $snapPoints($pts);
             $outStrokes[] = [
                 'id' => $s['id'] ?? (int) (microtime(true) * 1000),
-                'points' => $snapPoints($pts),
+                'points' => $snapPts,
                 'color' => $color,
                 'thickness' => $thickness,
                 'isWall' => (bool)($s['isWall'] ?? false),
@@ -211,10 +291,14 @@ EOD;
                 'material' => isset($s['material']) && is_string($s['material']) ? $s['material'] : null,
                 'rotation' => isset($s['rotation']) ? (float)$s['rotation'] : 0,
             ];
+            $totalPoints += count($snapPts);
+            if ($totalPoints >= $limits['max_total_points']) break;
         }
 
         $outShapes = [];
         foreach (($data['shapes'] ?? []) as $sh) {
+            if (count($outShapes) >= $limits['max_shapes']) break;
+            if ($totalPoints >= $limits['max_total_points']) break;
             if (!is_array($sh)) continue;
             $type = strtolower((string)($sh['type'] ?? ''));
             if ($type === 'ellipse') $type = 'oval';
@@ -280,8 +364,13 @@ EOD;
             if ($type === 'polygon') {
                 $pts = $sh['points'] ?? null;
                 if (!$this->isNumericArray($pts)) continue;
-                $pts = array_map(fn($v) => $snap($v), $pts);
+                // Enforce limits: per-polygon and total
+                $room = max(0, $limits['max_total_points'] - $totalPoints);
+                if ($room < 6) continue;
+                $maxForThis = min($limits['max_points_per_polygon'], $room);
+                $pts = $trimPoints($pts, $maxForThis);
                 if (!$evenPoints($pts)) continue;
+                $pts = array_map(fn($v) => $snap($v), $pts);
 
                 // Compute bbox and convert to local points
                 $minX = PHP_INT_MAX; $minY = PHP_INT_MAX;
@@ -310,6 +399,7 @@ EOD;
                     'layer_id' => $layerId,
                     'rotation' => $rotation,
                 ];
+                $totalPoints += count($local);
                 continue;
             }
 
