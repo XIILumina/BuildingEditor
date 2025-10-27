@@ -44,6 +44,7 @@ export default function Template({
   mergedBlocks = [],
   onUnmergeBlock = () => {},
   anchoredBlocks = [],
+  dimInactiveLayers = true,
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
@@ -58,6 +59,8 @@ export default function Template({
 
   // Compare layer ids robustly (handles string/number)
   const isSameLayer = (lid) => Number(lid) === Number(activeLayerId);
+
+  const inactiveOpacity = dimInactiveLayers ? 0.5 : 0;
 
   // Check if an object id belongs to an anchored block (or has anchored flag)
   const isAnchored = (maybeId) => {
@@ -905,7 +908,7 @@ export default function Template({
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
-                opacity={0.5}
+                opacity={inactiveOpacity}
                 draggable={false}
                 listening={false}
               />
@@ -914,70 +917,70 @@ export default function Template({
             .filter((sh) => !isSameLayer(sh.layer_id))
             .map((sh) => {
               const fill = sh.color || sh.fill || "#9CA3AF";
-               if (sh.type === "rect") {
-                 return (
-                   <Rect
-                     key={`bg-${sh.id}`}
-                     x={num(sh.x)}
-                     y={num(sh.y)}
-                     width={num(sh.width)}
-                     height={num(sh.height)}
-                     fill={fill}
-                     rotation={num(sh.rotation)}
-                     opacity={0.5}
-                     draggable={false}
-                     listening={false}
-                   />
-                 );
-               }
-               if (sh.type === "circle") {
-                 return (
-                   <Circle
-                     key={`bg-${sh.id}`}
-                     x={num(sh.x)}
-                     y={num(sh.y)}
-                     radius={num(sh.radius)}
-                     fill={fill}
-                     rotation={num(sh.rotation)}
-                     opacity={0.5}
-                     draggable={false}
-                     listening={false}
-                   />
-                 );
-               }
-               if (sh.type === "oval") {
-                 return (
-                   <Ellipse
-                     key={`bg-${sh.id}`}
-                     x={num(sh.x)}
-                     y={num(sh.y)}
-                     radiusX={num(sh.radiusX)}
-                     radiusY={num(sh.radiusY)}
-                     fill={fill}
-                     rotation={num(sh.rotation)}
-                     opacity={0.5}
-                     draggable={false}
-                     listening={false}
-                   />
-                 );
-               }
-               if (sh.type === "polygon") {
-                 return (
-                   <Path
-                     key={`bg-${sh.id}`}
-                     data={pointsToPath(sh.points)}
-                     x={num(sh.x)}
-                     y={num(sh.y)}
-                     rotation={num(sh.rotation)}
-                     fill={sh.fill || sh.color || "#9CA3AF"}
-                     opacity={0.5}
-                     draggable={false}
-                     listening={false}
-                   />
-                 );
-               }
-               return null;
-             })}
+              if (sh.type === "rect") {
+                return (
+                  <Rect
+                    key={`bg-${sh.id}`}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    width={num(sh.width)}
+                    height={num(sh.height)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "circle") {
+                return (
+                  <Circle
+                    key={`bg-${sh.id}`}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radius={num(sh.radius)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "oval") {
+                return (
+                  <Ellipse
+                    key={`bg-${sh.id}`}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radiusX={num(sh.radiusX)}
+                    radiusY={num(sh.radiusY)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "polygon") {
+                return (
+                  <Path
+                    key={`bg-${sh.id}`}
+                    data={pointsToPath(sh.points)}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    rotation={num(sh.rotation)}
+                    fill={sh.fill || sh.color || "#9CA3AF"}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              return null;
+            })}
         </Layer>
 
         {/* Preview Layer */}

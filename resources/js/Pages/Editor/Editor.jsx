@@ -74,6 +74,7 @@ export default function Editor({ projectId }) {
   const [mergedBlocks, setMergedBlocks] = useState([]);
   const [anchoredBlocks, setAnchoredBlocks] = useState([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [dimInactiveLayers, setDimInactiveLayers] = useState(true);
 
   const chatContainerRef = useRef(null);
 
@@ -770,7 +771,134 @@ useEffect(() => {
     mergedBlocks,
     onUnmergeBlock: unmergeBlock,
     anchoredBlocks,
+    dimInactiveLayers,
   };
+
+  // Helpers already defined: bboxOfItem
+  const selectedIds = useMemo(() => {
+    return Array.isArray(selectedId) ? selectedId.slice() : (selectedId ? [selectedId] : []);
+  }, [selectedId]);
+  
+  const selectionBbox = useMemo(() => {
+    if (!selectedIds.length) return null;
+    const rects = selectedIds.map(bboxOfItem).filter(Boolean);
+    if (!rects.length) return null;
+    const minX = Math.min(...rects.map(r => r.x));
+    const minY = Math.min(...rects.map(r => r.y));
+    const maxX = Math.max(...rects.map(r => r.x + r.width));
+    const maxY = Math.max(...rects.map(r => r.y + r.height));
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY, cx: (minX+maxX)/2, cy: (minY+maxY)/2 };
+  }, [selectedIds, strokes, shapes]);
+  
+  // Bulk transform for multi-selection: dx/dy offsets, target width/height, rotation delta (deg)
+  const applyBulkTransform = useCallback(({ dx = 0, dy = 0, targetWidth, targetHeight, rotateDelta = 0 }) => {
+    if (!Array.isArray(selectedId) || !selectedId.length || !selectionBbox) return;
+    const src = selectionBbox;
+    const sx = (Number.isFinite(targetWidth) && src.width > 0) ? (targetWidth / src.width) : 1;
+    const sy = (Number.isFinite(targetHeight) && src.height > 0) ? (targetHeight / src.height) : 1;
+    const useScale = sx !== 1 || sy !== 1;
+    const rot = (rotateDelta || 0) * Math.PI / 180;
+
+    const rotatePoint = (x, y, cx, cy) => {
+      const dx0 = x - cx, dy0 = y - cy;
+      const nx = cx + (dx0 * Math.cos(rot) - dy0 * Math.sin(rot));
+      const ny = cy + (dx0 * Math.sin(rot) + dy0 * Math.cos(rot));
+      return { x: nx, y: ny };
+    };
+
+    pushHistory('bulk-transform');
+
+    // Transform strokes
+    setStrokes(prev => prev.map(st => {
+      if (!selectedIds.includes(st.id)) return st;
+      let pts = Array.isArray(st.points) ? st.points.slice() : [];
+      // scale around selection minX/minY, then rotate around center, then translate
+      const scaled = pts.map((p, i) => {
+        const isX = (i % 2) === 0;
+        const v = p;
+        if (!useScale) return v;
+        if (isX) return src.x + (v - src.x) * sx;
+        return src.y + (v - src.y) * sy;
+      });
+      let rotated = scaled;
+      if (rot !== 0) {
+        rotated = scaled.slice();
+        for (let i = 0; i < rotated.length; i += 2) {
+          const rp = rotatePoint(rotated[i], rotated[i+1], src.cx, src.cy);
+          rotated[i] = rp.x; rotated[i+1] = rp.y;
+        }
+      }
+      const translated = rotated.map((p, i) => p + ((i % 2) === 0 ? dx : dy));
+      return { ...st, points: translated, x: 0, y: 0 };
+    }));
+
+    // Transform shapes
+    setShapes(prev => prev.map(sh => {
+      if (!selectedIds.includes(sh.id)) return sh;
+      let next = { ...sh };
+      // scale position around min corner, then rotate around center, then translate
+      let px = Number.isFinite(next.x) ? next.x : 0;
+      let py = Number.isFinite(next.y) ? next.y : 0;
+      if (useScale) {
+        px = src.x + (px - src.x) * sx;
+        py = src.y + (py - src.y) * sy;
+      }
+      if (rot !== 0) {
+        const rp = rotatePoint(px, py, src.cx, src.cy);
+        px = rp.x; py = rp.y;
+      }
+      px += dx; py += dy;
+
+      if (next.type === 'rect') {
+        next.x = px; next.y = py;
+        next.width = (next.width || 0) * sx;
+        next.height = (next.height || 0) * sy;
+        next.rotation = (Number(next.rotation) || 0) + (rotateDelta || 0);
+        return next;
+      }
+      if (next.type === 'circle') {
+        next.x = px; next.y = py;
+        // uniform scale by average factor
+        const uni = useScale ? ((sx + sy) / 2) : 1;
+        next.radius = (next.radius || 0) * uni;
+        next.rotation = (Number(next.rotation) || 0) + (rotateDelta || 0);
+        return next;
+      }
+      if (next.type === 'oval') {
+        next.x = px; next.y = py;
+        next.radiusX = (next.radiusX || 0) * sx;
+        next.radiusY = (next.radiusY || 0) * sy;
+        next.rotation = (Number(next.rotation) || 0) + (rotateDelta || 0);
+        return next;
+      }
+      if (next.type === 'polygon' && Array.isArray(next.points)) {
+        // scale points around min corner
+        let pts = next.points.slice();
+        if (useScale) {
+          for (let i = 0; i < pts.length; i += 2) {
+            pts[i] = src.x + (pts[i] - src.x) * sx;
+            pts[i+1] = src.y + (pts[i+1] - src.y) * sy;
+          }
+        }
+        if (rot !== 0) {
+          for (let i = 0; i < pts.length; i += 2) {
+            const rp = rotatePoint(pts[i], pts[i+1], src.cx, src.cy);
+            pts[i] = rp.x; pts[i+1] = rp.y;
+          }
+        }
+        // polygons typically ignore x/y in our renderer; keep x,y at 0 and store transformed points
+        next.points = pts.map((p, i) => p + ((i % 2) === 0 ? dx : dy));
+        next.x = 0; next.y = 0;
+        next.rotation = 0;
+        return next;
+      }
+      // default position-only
+      next.x = px; next.y = py;
+      next.rotation = (Number(next.rotation) || 0) + (rotateDelta || 0);
+      return next;
+    }));
+    setSaveState('unsaved');
+  }, [selectedId, selectionBbox, selectedIds, pushHistory, setStrokes, setShapes, setSaveState]);
 
   return (
     <motion.div
@@ -925,6 +1053,9 @@ useEffect(() => {
             setDrawColor={setDrawColor}
             addShape={addShape}
             selectedObject={selectedObject}
+            selectedId={selectedId}
+            selectionBbox={selectionBbox}
+            onBulkTransform={applyBulkTransform}
             updateSelectedProperty={updateSelectedProperty}
             aiMessages={aiMessages}
             aiRequestInProgress={aiRequestInProgress}
@@ -984,6 +1115,19 @@ useEffect(() => {
             ))}
           </AnimatePresence>
         </div>
+       <motion.button
+         onClick={() => setDimInactiveLayers((v) => !v)}
+         className={`ml-2 px-3 py-2 rounded-md text-sm border ${
+           dimInactiveLayers
+             ? 'bg-[#334155] text-white border-[#475569]'
+            : 'bg-[#0b1322] text-[#cbd5e1] border-[#334155]'
+         }`}
+         whileHover={{ scale: 1.03 }}
+         whileTap={{ scale: 0.98 }}
+         title="Toggle dimming of non-active layers"
+       >
+         {dimInactiveLayers ? 'Dim Other Layers: On' : 'Dim Other Layers: Off'}
+       </motion.button>
         <motion.button
           onClick={addLayer}
           className="ml-4 px-4 py-2 bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-white rounded-md shadow-lg border border-[#0891b2] font-semibold"
