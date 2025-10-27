@@ -32,19 +32,16 @@ export default function Sidepanel({
   clearAiMessages,
   mergeSelected,
   pxPerMeter,
-  setPxPerMeter
+  setPxPerMeter,
+  aiBusy,
 }) {
   const textareaRef = useRef(null);
   const maxChars = 500;
 
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-  }, [aiMessages, aiRequestInProgress]);
+    const el = chatContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight; // no smooth to avoid extension warnings
+  }, [aiMessages, aiRequestInProgress, aiBusy]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !aiRequestInProgress && aiPrompt.trim()) {
@@ -54,9 +51,8 @@ export default function Sidepanel({
     }
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    alert('Copied to clipboard!');
+  const copyToClipboard = async (text) => {
+    try { await navigator.clipboard.writeText(text); } catch (e) { console.warn('Clipboard failed', e); }
   };
 
   const formatTimestamp = () => {
@@ -170,6 +166,26 @@ export default function Sidepanel({
                     )}
                   </motion.div>
                 ))}
+              </AnimatePresence>
+
+              {/* Typing loader with animated dots */}
+              <AnimatePresence>
+                {(aiBusy || aiRequestInProgress) && (
+                  <motion.div
+                    key="ai-typing"
+                    className="inline-flex items-center gap-2 max-w-[80%] p-2 rounded-lg bg-[#334155] text-[#f3f4f6] mt-1"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                  >
+                    <span className="text-xs">Assistant is typing</span>
+                    <div className="flex items-center gap-1">
+                      <motion.span className="w-1.5 h-1.5 rounded-full bg-white/80" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, ease: 'easeInOut' }} />
+                      <motion.span className="w-1.5 h-1.5 rounded-full bg-white/70" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, ease: 'easeInOut', delay: 0.15 }} />
+                      <motion.span className="w-1.5 h-1.5 rounded-full bg-white/60" animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.8, ease: 'easeInOut', delay: 0.3 }} />
+                    </div>
+                  </motion.div>
+                )}
               </AnimatePresence>
             </div>
 

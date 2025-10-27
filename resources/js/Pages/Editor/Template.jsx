@@ -56,17 +56,20 @@ export default function Template({
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
 
+  // Compare layer ids robustly (handles string/number)
+  const isSameLayer = (lid) => Number(lid) === Number(activeLayerId);
+
   // Check if an object id belongs to an anchored block (or has anchored flag)
   const isAnchored = (maybeId) => {
     const id = typeof maybeId === 'number' ? maybeId : parseInt(maybeId, 10);
     if (!Number.isFinite(id)) return false;
     // Prefer flags on items if present
-    const st = strokes.find(s => s.id === id && s.layer_id === activeLayerId);
+    const st = strokes.find(s => s.id === id && isSameLayer(s.layer_id));
     if (st && st.anchoredBlockId) return true;
-    const sh = shapes.find(s => s.id === id && s.layer_id === activeLayerId);
+    const sh = shapes.find(s => s.id === id && isSameLayer(s.layer_id));
     if (sh && sh.anchoredBlockId) return true;
     // Fallback: membership in anchoredBlocks
-    return anchoredBlocks.some(b => b.layer_id === activeLayerId && (b.memberIds || []).includes(id));
+    return anchoredBlocks.some(b => isSameLayer(b.layer_id) && (b.memberIds || []).includes(id));
  };
 
   // Clear selection and Transformer when active layer changes
@@ -79,8 +82,8 @@ export default function Template({
   // Sanitize selection (exclude locked/anchored)
   useEffect(() => {
     const idsInActive = new Set([
-      ...strokes.filter((s) => s.layer_id === activeLayerId && !s.locked && !s.anchoredBlockId).map((s) => s.id),
-      ...shapes.filter((sh) => sh.layer_id === activeLayerId && !sh.locked && !sh.anchoredBlockId).map((sh) => sh.id),
+      ...strokes.filter((s) => isSameLayer(s.layer_id) && !s.locked && !s.anchoredBlockId).map((s) => s.id),
+      ...shapes.filter((sh) => isSameLayer(sh.layer_id) && !sh.locked && !sh.anchoredBlockId).map((sh) => sh.id),
     ]);
 
     if (Array.isArray(selectedId)) {
@@ -125,7 +128,7 @@ export default function Template({
 
   const eraseAtPoint = (world) => {
     const hitStrokeIds = strokes
-      .filter((st) => st.layer_id === activeLayerId)
+      .filter((st) => isSameLayer(st.layer_id))
       .filter((st) => {
         for (let i = 0; i < st.points.length - 2; i += 2) {
           const x1 = st.points[i];
@@ -146,7 +149,7 @@ export default function Template({
     }
 
     const hitShapeIds = shapes
-      .filter((sh) => sh.layer_id === activeLayerId)
+      .filter((sh) => isSameLayer(sh.layer_id))
       .filter((sh) => {
         if (sh.type === "rect") {
           return (
@@ -174,7 +177,7 @@ export default function Template({
     const snaps = { vertical: new Set(), horizontal: new Set() };
 
     shapes.forEach((sh) => {
-      if (sh.layer_id !== activeLayerId) return;
+      if (!isSameLayer(sh.layer_id)) return;
       if (sh.type === "rect") {
         const w = sh.width || 80;
         const h = sh.height || 60;
@@ -210,7 +213,7 @@ export default function Template({
     });
 
     strokes.forEach((st) => {
-      if (st.layer_id !== activeLayerId) return;
+      if (!isSameLayer(st.layer_id)) return;
       for (let i = 0; i < st.points.length; i += 2) {
         snaps.vertical.add(st.points[i]);
         snaps.horizontal.add(st.points[i + 1]);
@@ -863,7 +866,7 @@ export default function Template({
         {/* Background Layer for inactive layers */}
         <Layer>
           {strokes
-            .filter((s) => s.layer_id !== activeLayerId)
+            .filter((s) => !isSameLayer(s.layer_id))
             .map((s) => (
               <Line
                 key={`bg-${s.id}`}
@@ -881,78 +884,79 @@ export default function Template({
               />
             ))}
           {shapes
-            .filter((sh) => sh.layer_id !== activeLayerId)
+            .filter((sh) => !isSameLayer(sh.layer_id))
             .map((sh) => {
-              if (sh.type === "rect") {
-                return (
-                  <Rect
-                    key={`bg-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    width={num(sh.width)}
-                    height={num(sh.height)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.5}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "circle") {
-                return (
-                  <Circle
-                    key={`bg-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radius={num(sh.radius)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.5}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "oval") {
-                return (
-                  <Ellipse
-                    key={`bg-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radiusX={num(sh.radiusX)}
-                    radiusY={num(sh.radiusY)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.5}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "polygon") {
-                return (
-                  <Path
-                    key={`bg-${sh.id}`}
-                    data={pointsToPath(sh.points)}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    rotation={num(sh.rotation)}
-                    fill={sh.fill}
-                    opacity={0.5}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              return null;
-            })}
+              const fill = sh.color || sh.fill || "#9CA3AF";
+               if (sh.type === "rect") {
+                 return (
+                   <Rect
+                     key={`bg-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     width={num(sh.width)}
+                     height={num(sh.height)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.5}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "circle") {
+                 return (
+                   <Circle
+                     key={`bg-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radius={num(sh.radius)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.5}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "oval") {
+                 return (
+                   <Ellipse
+                     key={`bg-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.5}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "polygon") {
+                 return (
+                   <Path
+                     key={`bg-${sh.id}`}
+                     data={pointsToPath(sh.points)}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     rotation={num(sh.rotation)}
+                     fill={sh.fill || sh.color || "#9CA3AF"}
+                     opacity={0.5}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               return null;
+             })}
         </Layer>
 
         {/* Preview Layer */}
         <Layer>
           {previewStrokes
-            .filter((s) => s.layer_id === activeLayerId)
+            .filter((s) => isSameLayer(s.layer_id))
             .map((s) => (
               <Line
                 key={`preview-${s.id}`}
@@ -971,82 +975,83 @@ export default function Template({
               />
             ))}
           {previewShapes
-            .filter((sh) => sh.layer_id === activeLayerId)
+            .filter((sh) => isSameLayer(sh.layer_id))
             .map((sh) => {
-              if (sh.type === "rect") {
-                return (
-                  <Rect
-                    key={`preview-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    width={num(sh.width)}
-                    height={num(sh.height)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.7}
-                    dash={[5, 5]}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "circle") {
-                return (
-                  <Circle
-                    key={`preview-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radius={num(sh.radius)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.7}
-                    dash={[5, 5]}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "oval") {
-                return (
-                  <Ellipse
-                    key={`preview-${sh.id}`}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radiusX={num(sh.radiusX)}
-                    radiusY={num(sh.radiusY)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    opacity={0.7}
-                    dash={[5, 5]}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              if (sh.type === "polygon") {
-                return (
-                  <Path
-                    key={`preview-${sh.id}`}
-                    data={pointsToPath(sh.points)}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    rotation={num(sh.rotation)}
-                    fill={sh.fill}
-                    opacity={0.7}
-                    dash={[5, 5]}
-                    draggable={false}
-                    listening={false}
-                  />
-                );
-              }
-              return null;
-            })}
+              const fill = sh.color || sh.fill || "#9CA3AF";
+               if (sh.type === "rect") {
+                 return (
+                   <Rect
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     width={num(sh.width)}
+                     height={num(sh.height)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "circle") {
+                 return (
+                   <Circle
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radius={num(sh.radius)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "oval") {
+                 return (
+                   <Ellipse
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "polygon") {
+                 return (
+                   <Path
+                     key={`preview-${sh.id}`}
+                     data={pointsToPath(sh.points)}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     rotation={num(sh.rotation)}
+                     fill={sh.fill || sh.color || "#9CA3AF"}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               return null;
+             })}
         </Layer>
 
         {/* Active Layer */}
         <Layer ref={activeLayerRef}>
           {strokes
-            .filter((s) => s.layer_id === activeLayerId)
+            .filter((s) => isSameLayer(s.layer_id))
             .map((s) => (
               <Line
                 key={s.id}
@@ -1067,39 +1072,19 @@ export default function Template({
               />
             ))}
           {shapes
-            .filter((sh) => sh.layer_id === activeLayerId)
+            .filter((sh) => isSameLayer(sh.layer_id))
             .map((sh) => {
-              if (sh.type === "rect") {
-                return (
-                  <Rect
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    width={num(sh.width)}
-                    height={num(sh.height)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
-                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              if (sh.type === "circle") {
-               // If circle has radiusX/radiusY, render as Ellipse
-               if (sh.radiusX !== undefined && sh.radiusY !== undefined) {
+              const fill = sh.color || sh.fill || "#9CA3AF";
+               if (sh.type === "rect") {
                  return (
-                   <Ellipse
+                   <Rect
                      key={sh.id}
                      id={sh.id.toString()}
                      x={num(sh.x)}
                      y={num(sh.y)}
-                     radiusX={num(sh.radiusX)}
-                     radiusY={num(sh.radiusY)}
-                     fill={sh.color || "#9CA3AF"}
+                     width={num(sh.width)}
+                     height={num(sh.height)}
+                     fill={fill}
                      rotation={num(sh.rotation)}
                      draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
                      onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
@@ -1109,66 +1094,90 @@ export default function Template({
                    />
                  );
                }
-               // Otherwise true circle
-                return (
-                  <Circle
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radius={num(sh.radius)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
-                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              if (sh.type === "oval") {
-                return (
-                  <Ellipse
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    radiusX={num(sh.radiusX)}
-                    radiusY={num(sh.radiusY)}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={num(sh.rotation)}
-                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
-                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              if (sh.type === "polygon") {
-                return (
-                  <Path
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    data={pointsToPath(sh.points)}
-                    x={num(sh.x)}
-                    y={num(sh.y)}
-                    rotation={num(sh.rotation)}
-                    fill={sh.fill}
-                    stroke={sh.stroke || undefined}
-                    strokeWidth={num(sh.strokeWidth, 0)}
-                    hitStrokeWidth={12}
-                    draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
-                    onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              return null;
-            })}
+               if (sh.type === "circle") {
+                 // Only render as Ellipse if both radii are valid numbers
+                 const hasValidEllipseRadii =
+                   Number.isFinite(sh.radiusX) && Number.isFinite(sh.radiusY) &&
+                   (sh.radiusX > 0 || sh.radiusY > 0);
+                if (hasValidEllipseRadii) {
+                   return (
+                     <Ellipse
+                       key={sh.id}
+                       id={sh.id.toString()}
+                       x={num(sh.x)}
+                       y={num(sh.y)}
+                       radiusX={num(sh.radiusX)}
+                       radiusY={num(sh.radiusY)}
+                       fill={fill}
+                       rotation={num(sh.rotation)}
+                       draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                       onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                       onDragStart={handleDragStart}
+                       onDragMove={handleDragMove}
+                       onDragEnd={handleDragEnd}
+                     />
+                   );
+                 }
+                 // Otherwise true circle
+                 return (
+                   <Circle
+                     key={sh.id}
+                       id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radius={num(sh.radius)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               if (sh.type === "oval") {
+                 return (
+                   <Ellipse
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               if (sh.type === "polygon") {
+                 return (
+                   <Path
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     data={pointsToPath(sh.points)}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     rotation={num(sh.rotation)}
+                     fill={sh.fill || sh.color}
+                     stroke={sh.stroke || undefined}
+                     strokeWidth={num(sh.strokeWidth, 0)}
+                     hitStrokeWidth={12}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               return null;
+             })}
          {/* Merged block overlays (click to unmerge) */}
          {mergedBlocks
            .filter(b => b.layer_id === activeLayerId)

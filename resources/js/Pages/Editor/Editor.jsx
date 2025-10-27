@@ -70,7 +70,8 @@ export default function Editor({ projectId }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const [mergedBlocks, setMergedBlocks] = useState([]);
   const [anchoredBlocks, setAnchoredBlocks] = useState([]);
-  
+  const [aiBusy, setAiBusy] = useState(false);
+
   const chatContainerRef = useRef(null);
 
   const saveInProgress = useRef(false);
@@ -260,7 +261,49 @@ const confirmPreview = useCallback(() => {
         if (project.name) setProjectName(project.name);
         if (project.layers && project.layers.length > 0) {
           setLayers(project.layers);
-          setActiveLayerId(project.layers[0].id);
+          // Prefer saved active layer; otherwise infer from content; fallback to last layer in list
+          let nextActive = Number.isFinite(data.activeLayerId) ? Number(data.activeLayerId) : null;
+          if (!Number.isFinite(nextActive)) {
+            const layerIds = [];
+            if (Array.isArray(data.shapes)) layerIds.push(...data.shapes.map(s => Number(s.layer_id)).filter(Number.isFinite));
+            if (Array.isArray(data.strokes)) layerIds.push(...data.strokes.map(s => Number(s.layer_id)).filter(Number.isFinite));
+            if (layerIds.length) {
+              // Pick the layer with the most items; ties -> highest id
+              const counts = layerIds.reduce((acc, id) => (acc[id] = (acc[id] || 0) + 1, acc), {});
+              const sorted = Object.entries(counts).sort((a, b) => (b[1] - a[1]) || (Number(b[0]) - Number(a[0])));
+              nextActive = Number(sorted[0][0]);
+            } else {
+              nextActive = project.layers[project.layers.length - 1].id;
+            }
+          }
+          setActiveLayerId(nextActive);
+          // Debug layer distribution
+          if (Array.isArray(data.shapes) || Array.isArray(data.strokes)) {
+            const counts = {};
+            (data.shapes || []).forEach(s => { const k = s.layer_id; counts[k] = counts[k] || { shapes: 0, strokes: 0 }; counts[k].shapes++; });
+            (data.strokes || []).forEach(s => { const k = s.layer_id; counts[k] = counts[k] || { shapes: 0, strokes: 0 }; counts[k].strokes++; });
+            console.groupCollapsed('[DEBUG] layer content counts');
+            console.table(Object.entries(counts).map(([lid, v]) => ({ layer_id: Number(lid), shapes: v.shapes, strokes: v.strokes })));
+            console.log('[DEBUG] selected activeLayerId:', nextActive);
+            console.groupEnd();
+          }
+        }
+        // Debug: inspect shapes and layer id types
+        if (Array.isArray(data.shapes)) {
+          console.groupCollapsed('[DEBUG] Shapes after load');
+          console.table(
+            data.shapes.map(s => ({
+              id: s.id,
+              type: s.type,
+              layer_id: s.layer_id,
+              layer_id_type: typeof s.layer_id,
+              radius: s.radius,
+              color: s.color,
+              fill: s.fill
+            }))
+          );
+          console.log('[DEBUG] activeLayerId (state may update shortly):', activeLayerId, 'type:', typeof activeLayerId);
+          console.groupEnd();
         }
       })
       .catch((err) => {
@@ -287,6 +330,7 @@ const confirmPreview = useCallback(() => {
           material,
           projectName,
           layers,
+          activeLayerId, // persist current active layer so it restores next load
         },
       });
       setSaveState('saved');
@@ -297,7 +341,7 @@ const confirmPreview = useCallback(() => {
     } finally {
       saveInProgress.current = false;
     }
-  }, [projectId, strokes, erasers, shapes, gridSize, units, pxPerMeter, drawColor, thickness, material, projectName, layers]);
+  }, [projectId, strokes, erasers, shapes, gridSize, units, pxPerMeter, drawColor, thickness, material, projectName, layers, activeLayerId]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -433,6 +477,7 @@ const selectedObject = useMemo(() => {
     const userMessage = { id: Date.now(), role: 'user', content: aiPrompt };
     setAiMessages((prev) => [...prev, userMessage]);
     setAiPrompt("");
+    setAiBusy(true);
 
     // Check if the prompt is a draw request (e.g., contains "draw", "add", "create")
     const drawKeywords = ['draw', 'add', 'create', 'place', 'room', 'wall', 'shape', 'furniture'];
@@ -478,6 +523,8 @@ const selectedObject = useMemo(() => {
         content: 'Error: Could not get response from AI.',
       };
       setAiMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setAiBusy(false);
     }
   }, [aiPrompt, strokes, shapes, layers, activeLayerId]);
 
@@ -835,40 +882,79 @@ useEffect(() => {
             />
             <motion.button
               onClick={() => setSidepanelMode("ai-chat")}
-              className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
+              className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155] rounded-md"
               whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
               whileTap={{ scale: 0.98 }}
             >
               AI Chat
             </motion.button>
+            {aiBusy && (
+              <motion.div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#475569] bg-[#0b1322]"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+              >
+                <motion.div
+                  className="w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+                />
+                <span className="text-xs text-gray-200 tracking-wide">AI is thinking…</span>
+              </motion.div>
+            )}
             <InertiaLink href="/" className="font-bold text-xl text-[#f3f4f6]">
               Blueprint App
             </InertiaLink>
           </div>
-          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center space-x-2">
+          <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center space-x-3">
             <TextInput
               onChange={handleProjectNameChange}
-              className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#06b6d4]"
+              className="inline-block px-4 py-2 bg-[#334155] text-[#f3f4f6] font-semibold shadow-md border border-[#475569] rounded-md focus:border-[#06b6d4] focus:ring-2 focus:ring-[#06b6d4]"
               value={projectName || "Untitled Project"}
             />
-            <span className="text-xl">
-              {saveState === 'saved' ? '✅' : saveState === 'saving' ? '⏳' : '💾'}
-            </span>
+            <motion.div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border"
+              animate={{
+                backgroundColor: saveState === 'saved' ? '#065f46' : saveState === 'saving' ? '#7c2d12' : '#111827',
+                borderColor:      saveState === 'saved' ? '#10b981' : saveState === 'saving' ? '#f59e0b' : '#374151',
+              }}
+              transition={{ duration: 0.25 }}
+            >
+              {saveState === 'saving' && (
+                <motion.div
+                  className="w-4 h-4 border-2 border-white/80 border-t-transparent rounded-full"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+                />
+              )}
+              {saveState === 'saved' && (
+                <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none">
+                  <path d="M20 7L9 18l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+              {saveState === 'unsaved' && (
+                <span className="w-2 h-2 rounded-full bg-white/80 inline-block" />
+              )}
+              <span className="text-xs font-semibold text-white uppercase tracking-wide">
+                {saveState === 'saved' ? 'Saved' : saveState === 'saving' ? 'Saving' : 'Unsaved'}
+              </span>
+            </motion.div>
           </div>
           <div className="flex items-center space-x-4 ml-auto">
             {(previewStrokes.length > 0 || previewShapes.length > 0) && (
               <>
                 <motion.button
                   onClick={confirmPreview}
-                  className="bg-[#06b6d4] text-[#071021] text-sm px-4 py-2 shadow-md border border-[#334155]"
-                  whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+                  className="bg-[#10b981] text-white text-sm px-4 py-2 rounded-md shadow-md border border-[#059669]"
+                  whileHover={{ boxShadow: '0 4px 12px rgba(16, 185, 129, 0.5)' }}
                   whileTap={{ scale: 0.98 }}
                 >
                   Confirm Save
                 </motion.button>
                 <motion.button
                   onClick={clearPreview}
-                  className="bg-[#dc2626] text-[#f3f4f6] text-sm px-4 py-2 shadow-md border border-[#334155]"
+                  className="bg-[#dc2626] text-white text-sm px-4 py-2 rounded-md shadow-md border border-[#b91c1c]"
                   whileHover={{ boxShadow: '0 4px 12px rgba(220, 38, 38, 0.5)' }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -931,21 +1017,22 @@ useEffect(() => {
             mergeSelected={mergeSelected}
             pxPerMeter={pxPerMeter}
             setPxPerMeter={setPxPerMeter}
+            aiBusy={aiBusy}
           />
         </motion.div>
       </div>
       <motion.div
-        className="fixed bottom-0 left-0 right-0 z-30 h-12 bg-[#1e293b] flex items-center px-6 border-t border-[#334155] shadow-md"
+        className="fixed bottom-0 left-0 right-0 z-30 h-14 bg-gradient-to-r from-[#1e293b] to-[#0f172a] flex items-center px-6 border-t border-[#475569] shadow-2xl"
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="flex items-center space-x-3 overflow-x-auto flex-1">
+        <div className="flex items-center space-x-2 overflow-x-auto flex-1">
           <AnimatePresence>
             {layers.map((layer) => (
               <motion.div
                 key={layer.id}
-                className="flex items-center"
+                className="flex items-center space-x-1"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -953,12 +1040,12 @@ useEffect(() => {
               >
                 <motion.button
                   onClick={() => { setSelectedId(null); setActiveLayerId(layer.id); }}
-                  className={`px-3 py-2 text-sm font-medium ${
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all ${
                     activeLayerId === layer.id
-                      ? 'bg-[#06b6d4] text-[#071021]'
-                      : 'bg-[#334155] text-[#f3f4f6] hover:bg-[#475569]'
-                  } shadow-md border border-[#334155]`}
-                  whileHover={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)' }}
+                      ? 'bg-gradient-to-t from-[#06b6d4] to-[#0891b2] text-white shadow-lg border-t-2 border-x-2 border-[#06b6d4]'
+                      : 'bg-[#334155] text-[#94a3b8] hover:bg-[#475569] hover:text-white border-t border-x border-[#475569]'
+                  }`}
+                  whileHover={{ y: -2, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}
                   whileTap={{ scale: 0.98 }}
                 >
                   {layer.name}
@@ -966,11 +1053,11 @@ useEffect(() => {
                 {layers.length > 1 && (
                   <motion.button
                     onClick={() => deleteLayer(layer.id)}
-                    className="ml-2 px-2 py-1 bg-[#dc2626] text-[#f3f4f6] text-xs shadow-md border border-[#334155]"
+                    className="px-2 py-1 bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs rounded-md shadow-md border border-[#b91c1c]"
                     whileHover={{ boxShadow: '0 4px 12px rgba(220, 38, 38, 0.5)' }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    X
+                    ✕
                   </motion.button>
                 )}
               </motion.div>
@@ -979,11 +1066,11 @@ useEffect(() => {
         </div>
         <motion.button
           onClick={addLayer}
-          className="px-4 py-2 bg-[#06b6d4] text-[#071021] shadow-md border border-[#334155]"
-          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)' }}
+          className="ml-4 px-4 py-2 bg-gradient-to-r from-[#06b6d4] to-[#0891b2] text-white rounded-md shadow-lg border border-[#0891b2] font-semibold"
+          whileHover={{ boxShadow: '0 4px 12px rgba(6, 182, 212, 0.5)', scale: 1.05 }}
           whileTap={{ scale: 0.98 }}
         >
-          +
+          + New Layer
         </motion.button>
       </motion.div>
     </motion.div>
