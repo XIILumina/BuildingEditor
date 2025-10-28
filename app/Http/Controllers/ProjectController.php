@@ -241,6 +241,29 @@ class ProjectController extends Controller
         $project->delete();
         return response()->json(['success' => true]);
     }
+    public function exportJson($id)
+    {
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->with('layers.strokes', 'layers.erasers', 'layers.shapes')
+            ->firstOrFail();
+
+        $data = [
+            'project' => [
+                'id' => $project->id,
+                'name' => $project->name,
+                'layers' => $project->layers,
+            ],
+        ];
+
+        $filename = 'project_' . $id . '.json';
+        return response()->streamDownload(function () use ($data) {
+            echo json_encode($data, JSON_PRETTY_PRINT);
+        }, $filename, [
+            'Content-Type' => 'application/json',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
     
     public function updateName(Request $request, $id)
     {
@@ -293,6 +316,27 @@ class ProjectController extends Controller
                     $minY = min($minY, $centerY - $radius);
                     $maxX = max($maxX, $centerX + $radius);
                     $maxY = max($maxY, $centerY + $radius);
+                } elseif ($shape->type === 'oval') {
+                    $rx = $shape->radiusX ?? 40;
+                    $ry = $shape->radiusY ?? 30;
+                    $centerX = $shape->x ?? 0;
+                    $centerY = $shape->y ?? 0;
+                    $minX = min($minX, $centerX - $rx);
+                    $minY = min($minY, $centerY - $ry);
+                    $maxX = max($maxX, $centerX + $rx);
+                    $maxY = max($maxY, $centerY + $ry);
+                } elseif ($shape->type === 'polygon') {
+                    $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
+                    $offX = (int)($shape->x ?? 0);
+                    $offY = (int)($shape->y ?? 0);
+                    for ($i = 0; $i < count($pts); $i += 2) {
+                        $px = (int)($pts[$i] ?? 0) + $offX;
+                        $py = (int)($pts[$i + 1] ?? 0) + $offY;
+                        $minX = min($minX, $px);
+                        $minY = min($minY, $py);
+                        $maxX = max($maxX, $px);
+                        $maxY = max($maxY, $py);
+                    }
                 }
             }
             foreach ($layer->strokes as $stroke) {
@@ -315,6 +359,12 @@ class ProjectController extends Controller
             }
         }
 
+        if ($minX === PHP_INT_MAX || $minY === PHP_INT_MAX || $maxX === PHP_INT_MIN || $maxY === PHP_INT_MIN) {
+            // Nothing to draw; set reasonable defaults
+            $minX = $minY = 0;
+            $maxX = $maxY = 1000;
+        }
+
         // Set canvas size with padding
         $padding = 50;
         $width = max(2000, (int)($maxX - $minX + 2 * $padding));
@@ -332,26 +382,52 @@ class ProjectController extends Controller
             // Draw shapes
             foreach ($layer->shapes as $shape) {
                 // Parse color (default to black if invalid)
-                $color = $shape->color ? sscanf($shape->color, "#%02x%02x%02x") : [0, 0, 0];
-                $imgColor = imagecolorallocate($image, $color[0], $color[1], $color[2]);
+                $hex = $shape->fill ?: $shape->color;
+                $hex = $hex ?: '#000000';
+                $rgb = sscanf($hex, "#%02x%02x%02x");
+                $imgColor = imagecolorallocate($image, $rgb[0], $rgb[1], $rgb[2]);
 
                 // Adjust coordinates with offset
                 switch ($shape->type) {
                     case 'rect':
-                        $x = ($shape->x ?? 0) + $offsetX;
-                        $y = ($shape->y ?? 0) + $offsetY;
-                        $width = $shape->width ?? 100;
-                        $height = $shape->height ?? 60;
-                        if ($width > 0 && $height > 0) {
-                            imagefilledrectangle($image, $x, $y, $x + $width, $y + $height, $imgColor);
+                        $x = (int)(($shape->x ?? 0) + $offsetX);
+                        $y = (int)(($shape->y ?? 0) + $offsetY);
+                        $w = (int)($shape->width ?? 100);
+                        $h = (int)($shape->height ?? 60);
+                        if ($w > 0 && $h > 0) {
+                            imagefilledrectangle($image, $x, $y, $x + $w, $y + $h, $imgColor);
                         }
                         break;
                     case 'circle':
-                        $centerX = ($shape->x ?? 0) + $offsetX;
-                        $centerY = ($shape->y ?? 0) + $offsetY;
-                        $radius = $shape->radius ?? 40;
+                        $centerX = (int)(($shape->x ?? 0) + $offsetX);
+                        $centerY = (int)(($shape->y ?? 0) + $offsetY);
+                        $radius = (int)($shape->radius ?? 40);
                         if ($radius > 0) {
                             imagefilledellipse($image, $centerX, $centerY, $radius * 2, $radius * 2, $imgColor);
+                        }
+                        break;
+                    case 'oval':
+                        $centerX = (int)(($shape->x ?? 0) + $offsetX);
+                        $centerY = (int)(($shape->y ?? 0) + $offsetY);
+                        $rx = (int)($shape->radiusX ?? 40);
+                        $ry = (int)($shape->radiusY ?? 30);
+                        if ($rx > 0 && $ry > 0) {
+                            imagefilledellipse($image, $centerX, $centerY, $rx * 2, $ry * 2, $imgColor);
+                        }
+                        break;
+                    case 'polygon':
+                        $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
+                        if (is_array($pts) && count($pts) >= 6 && count($pts) % 2 === 0) {
+                            $offX = (int)(($shape->x ?? 0) + $offsetX);
+                            $offY = (int)(($shape->y ?? 0) + $offsetY);
+                            $abs = [];
+                            for ($i = 0; $i < count($pts); $i += 2) {
+                                $abs[] = (int)($pts[$i] + $offX);
+                                $abs[] = (int)($pts[$i + 1] + $offY);
+                            }
+                            // GD expects a flat array of coordinates
+                            $numPoints = count($abs) / 2;
+                            imagefilledpolygon($image, $abs, $numPoints, $imgColor);
                         }
                         break;
                 }
@@ -367,10 +443,10 @@ class ProjectController extends Controller
                 imagesetthickness($image, max(1, (int)($stroke->thickness ?? 6)));
 
                 for ($i = 0; $i < count($points) - 2; $i += 2) {
-                    $x1 = $points[$i] + $offsetX;
-                    $y1 = $points[$i + 1] + $offsetY;
-                    $x2 = $points[$i + 2] + $offsetX;
-                    $y2 = $points[$i + 3] + $offsetY;
+                    $x1 = (int)($points[$i] + $offsetX);
+                    $y1 = (int)($points[$i + 1] + $offsetY);
+                    $x2 = (int)($points[$i + 2] + $offsetX);
+                    $y2 = (int)($points[$i + 3] + $offsetY);
                     imageline($image, $x1, $y1, $x2, $y2, $imgColor);
                 }
             }
@@ -384,10 +460,10 @@ class ProjectController extends Controller
                 imagesetthickness($image, max(1, (int)($eraser->thickness ?? 40)));
 
                 for ($i = 0; $i < count($points) - 2; $i += 2) {
-                    $x1 = $points[$i] + $offsetX;
-                    $y1 = $points[$i + 1] + $offsetY;
-                    $x2 = $points[$i + 2] + $offsetX;
-                    $y2 = $points[$i + 3] + $offsetY;
+                    $x1 = (int)($points[$i] + $offsetX);
+                    $y1 = (int)($points[$i + 1] + $offsetY);
+                    $x2 = (int)($points[$i + 2] + $offsetX);
+                    $y2 = (int)($points[$i + 3] + $offsetY);
                     imageline($image, $x1, $y1, $x2, $y2, $imgColor);
                 }
             }
