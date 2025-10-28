@@ -23,7 +23,7 @@ class OpenAIController extends Controller
 
         try {
             $response = $client->chat()->create([
-                'model' => 'gpt-4.1',
+                'model' => 'gpt-4o',
                 'messages' => $messages,
             ]);
             \Log::debug("OpenAI response: " . json_encode($response));
@@ -82,7 +82,7 @@ class OpenAIController extends Controller
 
         $encodedProjectData = json_encode($projectData);
 
-        // Clean, comment-free format instructions + explicit wall rounding
+        // Clean, comment-free format instructions + explicit wall rules
         $systemPrompt = <<<EOD
 You produce only valid JSON for a floorplan canvas. Snap all coordinates to a grid (multiples of gridSize, default 10). Round all wall endpoints to grid multiples. Prefer axis-aligned shapes, orthogonal walls, and closed polygons.
 
@@ -108,12 +108,13 @@ Output format (no comments, only these keys):
 }
 
 Rules:
+- Walls must be straight: use strokes with isWall=true and points of EXACTLY 4 numbers [x1,y1,x2,y2]. Do not add intermediate points for walls. Never make circular/freehand walls.
 - Use only the keys shown above. No extra keys, no comments.
 - All numbers are integers and multiples of gridSize.
 - Colors are hex (#rrggbb).
 - points arrays are even-length; polygons use >= 6 values.
 - For polygons: set x,y to min x/y of bbox; make points relative to (0,0).
-- For walls: use strokes with isWall=true, straight segments, grid-aligned endpoints.
+- For walls: straight segments, grid-aligned endpoints (prefer horizontal/vertical). Use multiple strokes for multiple walls.
 - Use existing layer_id when appropriate; otherwise use activeLayerId.
 
 Context:
@@ -129,14 +130,14 @@ EOD;
             ['role' => 'user', 'content' => $prompt],
         ];
 
-        $model = $request->input('model', env('AI_MODEL', 'gpt-4.1'));
+        $model = $request->input('model', env('AI_MODEL', 'gpt-4o'));
         $maxTokens = (int) env('AI_MAX_TOKENS', 4096);
 
         try {
             $response = $client->chat()->create([
                 'model' => $model,
                 'messages' => $messages,
-                'temperature' => (float) env('AI_TEMPERATURE', 0.15),
+                'temperature' => (float) env('AI_TEMPERATURE', 0.05 ),
                 'top_p' => 0.95,
                 'response_format' => ['type' => 'json_object'],
                 'max_tokens' => $maxTokens,
@@ -255,7 +256,6 @@ EOD;
         $trimPoints = function(array $pts, int $maxLen) {
             if ($maxLen <= 0) return [];
             if (count($pts) <= $maxLen) return $pts;
-            // Keep even length
             $maxLen = $maxLen - ($maxLen % 2);
             return array_slice($pts, 0, max(0, $maxLen));
         };
@@ -268,31 +268,81 @@ EOD;
             if (!is_array($s)) continue;
             $pts = $s['points'] ?? null;
             if (!is_array($pts) || count($pts) < 4) continue;
-            // Enforce per-stroke and total points limits
-            $room = max(0, $limits['max_total_points'] - $totalPoints);
-            if ($room < 4) break;
-            $maxForThis = min($limits['max_points_per_stroke'], $room);
-            $pts = $trimPoints($pts, $maxForThis);
-            if (count($pts) < 4) continue;
 
             $color = is_string($s['color'] ?? null) && preg_match($hex, $s['color']) ? $s['color'] : '#9ca3af';
             $thickness = isset($s['thickness']) ? (int)$s['thickness'] : 2;
             if ($thickness < 1) $thickness = 1;
             if ($thickness > 200) $thickness = 200;
 
-            $snapPts = $snapPoints($pts);
-            $outStrokes[] = [
-                'id' => $s['id'] ?? (int) (microtime(true) * 1000),
-                'points' => $snapPts,
-                'color' => $color,
-                'thickness' => $thickness,
-                'isWall' => (bool)($s['isWall'] ?? false),
-                'layer_id' => isset($s['layer_id']) ? (int)$s['layer_id'] : $activeLayerId,
-                'material' => isset($s['material']) && is_string($s['material']) ? $s['material'] : null,
-                'rotation' => isset($s['rotation']) ? (float)$s['rotation'] : 0,
-            ];
-            $totalPoints += count($snapPts);
-            if ($totalPoints >= $limits['max_total_points']) break;
+            $isWall = (bool)($s['isWall'] ?? false);
+
+            if ($isWall) {
+                // Force walls to be straight: keep only start and end (snapped)
+                $x1 = $snap($pts[0] ?? 0);
+                $y1 = $snap($pts[1] ?? 0);
+                $x2 = $snap($pts[count($pts) - 2] ?? $x1);
+                $y2 = $snap($pts[count($pts) - 1] ?? $y1);
+
+                // If start == end, pick farthest point as end
+                if ($x1 === $x2 && $y1 === $y2 && count($pts) >= 4) {
+                    $bestI = 2; $bestD = -1;
+                    for ($i = 2; $i < count($pts); $i += 2) {
+                        $sx = $snap($pts[$i] ?? 0);
+                        $sy = $snap($pts[$i + 1] ?? 0);
+                        $d = ($sx - $x1) * ($sx - $x1) + ($sy - $y1) * ($sy - $y1);
+                        if ($d > $bestD) { $bestD = $d; $x2 = $sx; $y2 = $sy; }
+                    }
+                }
+
+                // Prefer orthogonal walls: project to axis if one delta dominates
+                $dx = abs($x2 - $x1);
+                $dy = abs($y2 - $y1);
+                if ($dx >= $dy) {
+                    // horizontal
+                    $y2 = $y1;
+                } else {
+                    // vertical
+                    $x2 = $x1;
+                }
+
+                $snapPts = [$x1, $y1, $x2, $y2];
+                $room = max(0, $limits['max_total_points'] - $totalPoints);
+                if ($room < 4) break;
+
+                $outStrokes[] = [
+                    'id' => $s['id'] ?? (int) (microtime(true) * 1000),
+                    'points' => $snapPts,
+                    'color' => $color,
+                    'thickness' => $thickness,
+                    'isWall' => true,
+                    'layer_id' => isset($s['layer_id']) ? (int)$s['layer_id'] : $activeLayerId,
+                    'material' => isset($s['material']) && is_string($s['material']) ? $s['material'] : null,
+                    'rotation' => isset($s['rotation']) ? (float)$s['rotation'] : 0,
+                ];
+                $totalPoints += 4;
+                if ($totalPoints >= $limits['max_total_points']) break;
+            } else {
+                // Non-wall strokes: enforce per-stroke/total points limits and snap
+                $room = max(0, $limits['max_total_points'] - $totalPoints);
+                if ($room < 4) break;
+                $maxForThis = min($limits['max_points_per_stroke'], $room);
+                $pts = $trimPoints($pts, $maxForThis);
+                if (count($pts) < 4) continue;
+
+                $snapPts = $snapPoints($pts);
+                $outStrokes[] = [
+                    'id' => $s['id'] ?? (int) (microtime(true) * 1000),
+                    'points' => $snapPts,
+                    'color' => $color,
+                    'thickness' => $thickness,
+                    'isWall' => false,
+                    'layer_id' => isset($s['layer_id']) ? (int)$s['layer_id'] : $activeLayerId,
+                    'material' => isset($s['material']) && is_string($s['material']) ? $s['material'] : null,
+                    'rotation' => isset($s['rotation']) ? (float)$s['rotation'] : 0,
+                ];
+                $totalPoints += count($snapPts);
+                if ($totalPoints >= $limits['max_total_points']) break;
+            }
         }
 
         $outShapes = [];
