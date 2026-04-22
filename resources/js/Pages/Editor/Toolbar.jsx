@@ -3,6 +3,10 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { IoArrowForward, IoCubeOutline, IoResize } from 'react-icons/io5';
 import { TbEraser, TbPencil, TbBorderCorners, TbColorFilter } from "react-icons/tb";
+import { CiPickerHalf } from "react-icons/ci";
+import { FaFill } from "react-icons/fa";
+import { IoIosColorPalette } from "react-icons/io";
+
 
 export default function Toolbar({ tool, setTool, drawColor, setDrawColor, thickness, setThickness }) {
   const [showSizeMenu, setShowSizeMenu] = useState(false);
@@ -30,6 +34,8 @@ export default function Toolbar({ tool, setTool, drawColor, setDrawColor, thickn
           { name: 'wall', icon: <IoCubeOutline size={20} /> },
           { name: 'freedraw', icon: <TbPencil size={20} /> },
           { name: 'eraser', icon: <TbEraser size={20} /> },
+          { name: 'fill', icon: <FaFill size={20} /> },
+          { name: 'picker', icon: <CiPickerHalf size={20} /> },
         ].map((t) => (
           <motion.button
             key={t.name}
@@ -75,14 +81,24 @@ export default function Toolbar({ tool, setTool, drawColor, setDrawColor, thickn
           </motion.div>
         )}
       </div>
-      <div className="flex rounded-3xl items-center bg-[#334155] p-2 border border-[#334155] shadow-md">
+      <div className="relative z-2 flex items-center bg-[#334155] p-1 border border-[#334155] shadow-md">
+        <IoIosColorPalette
+          size={28}
+          style={{
+            background: drawColor,
+            borderRadius: '50%',
+            padding: '2px',
+            transition: 'background 0.2s'
+          }}
+          className="text-[#071021]"
+        />
         <input
-        
           type="color"
           value={drawColor || '#ffffff'}
           onChange={(e) => setDrawColor(e.target.value)}
-          className="w-6 h-6 ml-1 rounded-3xl cursor-pointer "
-        ></input>
+          className="absolute left-0 top-0 w-8 h-8 opacity-0 cursor-pointer"
+          style={{ zIndex: 10 }}
+        />
 
       </div>
     </motion.div>

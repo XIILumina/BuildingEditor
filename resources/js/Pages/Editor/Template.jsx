@@ -1,6 +1,25 @@
-// Template.jsx
 import React, { useRef, useState, useEffect } from "react";
-import { Stage, Layer, Line, Rect, Transformer, Circle } from "react-konva";
+import { Stage, Layer, Line, Rect, Transformer, Circle, Path, Ellipse } from "react-konva";
+import { detectRooms, isPointInPolygon, pointsEqual, getLineIntersections } from './utils/drawingUtils';
+
+function pointsToPath(points) {
+  // Coerce to numbers and drop invalids
+  if (!Array.isArray(points) || points.length < 2) return "";
+  const p = points.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  if (p.length < 2) return "";
+  let path = `M${p[0]} ${p[1]}`;
+  for (let i = 2; i < p.length; i += 2) {
+    if (!Number.isFinite(p[i]) || !Number.isFinite(p[i + 1])) continue;
+    path += ` L${p[i]} ${p[i + 1]}`;
+  }
+  path += " Z";
+  return path;
+}
+// Helper to coerce numbers safely
+const num = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
 export default function Template({
   tool = "select",
@@ -10,19 +29,26 @@ export default function Template({
   setErasers,
   shapes = [],
   setShapes,
+  setDrawColor,
   drawColor = "#ffffff",
   thickness = 6,
   gridSize = 20,
   material = "Brick",
   selectedId = null,
-  setSelectedId = () => {},
-  layers = [],
-  activeLayerId = 1,
+  setSelectedId,
+  activeLayerId,
   snapToGrid = true,
-  onSave = () => {}
+  onSave = () => {},
+  previewStrokes = [],
+  previewShapes = [],
+  mergedBlocks = [],
+  onUnmergeBlock = () => {},
+  anchoredBlocks = [],
+  dimInactiveLayers = true,
 }) {
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
+  const activeLayerRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [selectionBox, setSelectionBox] = useState(null);
@@ -30,7 +56,48 @@ export default function Template({
   const [guides, setGuides] = useState([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
-  
+
+  // Compare layer ids robustly (handles string/number)
+  const isSameLayer = (lid) => Number(lid) === Number(activeLayerId);
+
+  const inactiveOpacity = dimInactiveLayers ? 0.5 : 0;
+
+  // Check if an object id belongs to an anchored block (or has anchored flag)
+  const isAnchored = (maybeId) => {
+    const id = typeof maybeId === 'number' ? maybeId : parseInt(maybeId, 10);
+    if (!Number.isFinite(id)) return false;
+    // Prefer flags on items if present
+    const st = strokes.find(s => s.id === id && isSameLayer(s.layer_id));
+    if (st && st.anchoredBlockId) return true;
+    const sh = shapes.find(s => s.id === id && isSameLayer(s.layer_id));
+    if (sh && sh.anchoredBlockId) return true;
+    // Fallback: membership in anchoredBlocks
+    return anchoredBlocks.some(b => isSameLayer(b.layer_id) && (b.memberIds || []).includes(id));
+ };
+
+  // Clear selection and Transformer when active layer changes
+  useEffect(() => {
+    setSelectedId(null);
+    const tr = transformerRef.current;
+    if (tr) tr.nodes([]);
+  }, [activeLayerId, setSelectedId]);
+
+  // Sanitize selection (exclude locked/anchored)
+  useEffect(() => {
+    const idsInActive = new Set([
+      ...strokes.filter((s) => isSameLayer(s.layer_id) && !s.locked && !s.anchoredBlockId).map((s) => s.id),
+      ...shapes.filter((sh) => isSameLayer(sh.layer_id) && !sh.locked && !sh.anchoredBlockId).map((sh) => sh.id),
+    ]);
+
+    if (Array.isArray(selectedId)) {
+      const keep = selectedId.filter((id) => idsInActive.has(id));
+      if (keep.length !== selectedId.length) {
+        setSelectedId(keep.length ? keep : null);
+      }
+    } else if (selectedId && !idsInActive.has(selectedId)) {
+      setSelectedId(null);
+    }
+  }, [strokes, shapes, activeLayerId, selectedId, setSelectedId]);
 
   // -----------------------
   // Helpers
@@ -64,7 +131,7 @@ export default function Template({
 
   const eraseAtPoint = (world) => {
     const hitStrokeIds = strokes
-      .filter((st) => st.layer_id === activeLayerId)
+      .filter((st) => isSameLayer(st.layer_id))
       .filter((st) => {
         for (let i = 0; i < st.points.length - 2; i += 2) {
           const x1 = st.points[i];
@@ -81,21 +148,50 @@ export default function Template({
 
     if (hitStrokeIds.length > 0) {
       setStrokes((prev) => prev.filter((st) => !hitStrokeIds.includes(st.id)));
-      setSelectedId(null); // Unselect if erased
+      setSelectedId(null);
     }
 
     const hitShapeIds = shapes
-      .filter((sh) => sh.layer_id === activeLayerId)
+      .filter((sh) => isSameLayer(sh.layer_id))
+      // Optional: skip locked/anchored shapes
+      .filter((sh) => !(sh.locked || sh.anchoredBlockId))
       .filter((sh) => {
         if (sh.type === "rect") {
-          return world.x >= sh.x &&
-                 world.x <= sh.x + (sh.width || 0) &&
-                 world.y >= sh.y &&
-                 world.y <= sh.y + (sh.height || 0);
-        } else if (sh.type === "circle") {
-          const dx = world.x - sh.x;
-          const dy = world.y - sh.y;
+          return (
+            world.x >= (sh.x || 0) &&
+            world.x <= (sh.x || 0) + (sh.width || 0) &&
+            world.y >= (sh.y || 0) &&
+            world.y <= (sh.y || 0) + (sh.height || 0)
+          );
+        }
+        if (sh.type === "circle") {
+          const dx = world.x - (sh.x || 0);
+          const dy = world.y - (sh.y || 0);
           return Math.hypot(dx, dy) <= (sh.radius || 0);
+        }
+        if (sh.type === "oval") {
+          const rx = sh.radiusX || 0;
+          const ry = sh.radiusY || 0;
+          if (rx <= 0 || ry <= 0) return false;
+          const dx = (world.x - (sh.x || 0)) / rx;
+          const dy = (world.y - (sh.y || 0)) / ry;
+          return dx * dx + dy * dy <= 1;
+        }
+        if (sh.type === "polygon" && Array.isArray(sh.points)) {
+          const offX = Number(sh.x) || 0;
+          const offY = Number(sh.y) || 0;
+          const pairs = [];
+          for (let i = 0; i < sh.points.length; i += 2) {
+            const px = (sh.points[i] || 0) + offX;
+            const py = (sh.points[i + 1] || 0) + offY;
+            if (Number.isFinite(px) && Number.isFinite(py)) {
+              pairs.push([px, py]);
+            }
+          }
+          if (pairs.length >= 3) {
+            return isPointInPolygon([world.x, world.y], pairs);
+          }
+          return false;
         }
         return false;
       })
@@ -103,7 +199,7 @@ export default function Template({
 
     if (hitShapeIds.length > 0) {
       setShapes((prev) => prev.filter((sh) => !hitShapeIds.includes(sh.id)));
-      setSelectedId(null); // Unselect if erased
+      setSelectedId(null);
     }
   };
 
@@ -111,6 +207,7 @@ export default function Template({
     const snaps = { vertical: new Set(), horizontal: new Set() };
 
     shapes.forEach((sh) => {
+      if (!isSameLayer(sh.layer_id)) return;
       if (sh.type === "rect") {
         const w = sh.width || 80;
         const h = sh.height || 60;
@@ -128,10 +225,25 @@ export default function Template({
         snaps.horizontal.add(sh.y - r);
         snaps.horizontal.add(sh.y);
         snaps.horizontal.add(sh.y + r);
+      } else if (sh.type === "oval") {
+        const rx = sh.radiusX || 40;
+        const ry = sh.radiusY || 30;
+        snaps.vertical.add((sh.x || 0) - rx);
+        snaps.vertical.add(sh.x || 0);
+        snaps.vertical.add((sh.x || 0) + rx);
+        snaps.horizontal.add((sh.y || 0) - ry);
+        snaps.horizontal.add(sh.y || 0);
+        snaps.horizontal.add((sh.y || 0) + ry);
+      } else if (sh.type === "polygon" && Array.isArray(sh.points)) {
+        for (let i = 0; i < sh.points.length; i += 2) {
+          snaps.vertical.add(sh.points[i]);
+          snaps.horizontal.add(sh.points[i + 1]);
+        }
       }
     });
 
     strokes.forEach((st) => {
+      if (!isSameLayer(st.layer_id)) return;
       for (let i = 0; i < st.points.length; i += 2) {
         snaps.vertical.add(st.points[i]);
         snaps.horizontal.add(st.points[i + 1]);
@@ -154,7 +266,24 @@ export default function Template({
   };
 
   const handleDragMove = (e) => {
+    // If anchored, block movement by snapping back and skipping guides
+    const id = parseInt(e?.target?.id?.() || 0, 10);
+    if (isAnchored(id)) {
+      const node = e.target;
+      // Keep at its current data-driven position (Konva node.x/y reset in dragEnd anyway)
+      node.x(0);
+      node.y(0);
+      setGuides([]);
+      return;
+    }
     const node = e.target;
+
+    // If multiple selected, do NOT snap; let Konva handle the drag naturally.
+    if (Array.isArray(selectedId) && selectedId.length > 1) {
+      setGuides([]);
+      return; // don't override node position
+    }
+
     const snaps = getSnapPositions();
     const threshold = 5;
 
@@ -210,6 +339,14 @@ export default function Template({
     setIsDraggingNode(false);
     const node = e.target;
     const id = parseInt(node.id());
+    if (isAnchored(id)) {
+      // Revert any unintended offset
+      node.x(0);
+      node.y(0);
+      node.getLayer()?.batchDraw();
+      setGuides([]);
+      return;
+    }
     const className = node.getClassName();
 
     if (className === "Line") {
@@ -224,7 +361,7 @@ export default function Template({
       node.x(0);
       node.y(0);
       node.points(newPoints);
-      node.getLayer().batchDraw();
+      node.getLayer()?.batchDraw(); // safe
 
       setStrokes((prev) =>
         prev.map((st) =>
@@ -233,9 +370,19 @@ export default function Template({
       );
     } else {
       setShapes((prev) =>
-        prev.map((sh) =>
-          sh.id === id ? { ...sh, x: node.x(), y: node.y() } : sh
-        )
+        prev.map((sh) => {
+          if (sh.id !== id) return sh;
+          if (sh.type === "polygon" && Array.isArray(sh.points)) {
+            const dx = node.x() || 0;
+            const dy = node.y() || 0;
+            const newPoints = sh.points.map((p, i) => p + (i % 2 === 0 ? dx : dy));
+            node.x(0);
+            node.y(0);
+            node.getLayer()?.batchDraw(); // safe
+            return { ...sh, points: newPoints, x: 0, y: 0, rotation: 0 };
+          }
+          return { ...sh, x: node.x(), y: node.y() };
+        })
       );
     }
     setGuides([]);
@@ -245,6 +392,14 @@ export default function Template({
     const nodes = transformerRef.current.nodes() || [];
     nodes.forEach((node) => {
       const id = parseInt(node.id());
+      if (isAnchored(id)) {
+        // Disallow any transforms on anchored members
+        node.x(0); node.y(0);
+        node.scaleX(1); node.scaleY(1);
+        node.rotation(0);
+        node.getLayer()?.batchDraw();
+        return;
+      }
       const className = node.getClassName();
 
       if (className === "Line") {
@@ -262,7 +417,7 @@ export default function Template({
         node.scaleY(1);
         node.rotation(0);
         node.points(newPoints);
-        node.getLayer().batchDraw();
+        node.getLayer()?.batchDraw(); // safe
 
         setStrokes((prev) =>
           prev.map((st) =>
@@ -280,12 +435,37 @@ export default function Template({
             if (sh.type === "rect") {
               newSh.width = (node.width() || 80) * node.scaleX();
               newSh.height = (node.height() || 60) * node.scaleY();
+              node.scaleX(1); node.scaleY(1);
             } else if (sh.type === "circle") {
-              newSh.radius = (node.radius() || 40) * node.scaleX();
+              newSh.radius = (node.radius() || 40) * Math.max(node.scaleX(), node.scaleY());
+              node.scaleX(1); node.scaleY(1);
+            } else if (sh.type === "oval") {
+              const rx = typeof node.radiusX === "function" ? node.radiusX() : (sh.radiusX || 0);
+              const ry = typeof node.radiusY === "function" ? node.radiusY() : (sh.radiusY || 0);
+              newSh.radiusX = rx * node.scaleX();
+              newSh.radiusY = ry * node.scaleY();
+              node.scaleX(1); node.scaleY(1);
+            } else if (sh.type === "polygon") {
+              const relTransform = node.getTransform();
+              const oldPoints = sh.points;
+              const newPoints = [];
+              for (let i = 0; i < oldPoints.length; i += 2) {
+                const local = { x: oldPoints[i], y: oldPoints[i + 1] };
+                const world = relTransform.point(local);
+                newPoints.push(world.x, world.y);
+              }
+              newSh.points = newPoints;
+              newSh.x = 0;
+              newSh.y = 0;
+              newSh.rotation = 0;
+
+              node.x(0);
+              node.y(0);
+              node.scaleX(1);
+              node.scaleY(1);
+              node.rotation(0);
             }
-            node.scaleX(1);
-            node.scaleY(1);
-            node.getLayer().batchDraw();
+            node.getLayer()?.batchDraw(); // safe
             return newSh;
           })
         );
@@ -300,6 +480,12 @@ export default function Template({
     const stage = stageRef.current;
     if (!stage) return;
 
+    // If switching to any non-select tool, drop selection to avoid stale Transformer
+    if (tool !== "select" && selectedId) {
+      setSelectedId(null);
+      transformerRef.current?.nodes([]);
+    }
+
     if (e.evt.button === 2) {
       setIsPanning(true);
       return;
@@ -308,9 +494,67 @@ export default function Template({
     let pos = getMousePos(stage);
     if (!pos) return;
 
-    if (tool === "select" && !isDraggingNode && e.target === stage) {
+    // Start marquee on empty Stage/Layer
+    if (tool === "select" && !isDraggingNode && (e.target === stage || e.target.getClassName?.() === "Layer")) {
       setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 });
       setSelectedId(null);
+      return;
+    }
+
+    // If clicking in select mode on a non-drawable target, clear selection
+    if (tool === "select") {
+      const cls = e.target?.getClassName?.();
+      if (!["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls)) {
+        setSelectedId(null);
+      }
+    }
+
+    if (tool === "fill") {
+      const pos = getMousePos(stage);
+      if (!pos) return;
+
+      const walls = strokes.filter((s) => s.isWall && s.layer_id === activeLayerId);
+
+      // Get intersection points
+      const intersectionPoints = getLineIntersections(walls);
+
+      // Add intersection points to wall endpoints
+      let allWallPoints = [];
+      walls.forEach(wall => {
+        for (let i = 0; i < wall.points.length; i += 2) {
+          allWallPoints.push([wall.points[i], wall.points[i + 1]]);
+        }
+      });
+      allWallPoints = allWallPoints.concat(intersectionPoints);
+
+      // Use allWallPoints in your room detection
+      const { rooms } = detectRooms(walls, allWallPoints);
+
+      const containingRoom = rooms.find((roomPoints) => isPointInPolygon([pos.x, pos.y], roomPoints));
+      if (containingRoom) {
+        const newShape = {
+          id: Date.now(),
+          type: "polygon",
+          points: containingRoom.flat(),
+          fill: drawColor,
+          color: drawColor, // ensure DB 'color' NOT NULL
+          closed: true,
+          layer_id: activeLayerId,
+        };
+        setShapes((prev) => [...prev, newShape]);
+      }
+      return;
+    }
+
+    if (tool === "picker") {
+      // getIntersection expects stage (screen) coordinates
+      const p = stage.getPointerPosition();
+      if (!p) return;
+      const node = stage.getIntersection(p);
+      if (node) {
+        const color = node.fill() || node.stroke() || "#ffffff";
+        setDrawColor(color);
+      }
       return;
     }
 
@@ -318,6 +562,7 @@ export default function Template({
       if (snapToGrid) {
         pos = getMousePos(stage, true);
       }
+      setIsDrawing(true);
       setCurrentStroke({
         points: [pos.x, pos.y],
         color: drawColor,
@@ -325,7 +570,6 @@ export default function Template({
         isWall: tool === "wall",
         isEraser: false,
       });
-      setIsDrawing(true);
     }
 
     if (tool === "eraser") {
@@ -400,7 +644,7 @@ export default function Template({
       setSelectionBox({
         ...selectionBox,
         width: pos.x - selectionBox.x,
-        height: pos.y - selectionBox.y
+        height: pos.y - selectionBox.y,
       });
     }
   };
@@ -413,7 +657,7 @@ export default function Template({
         if (pos && snapToGrid) {
           const snappedX = Math.round(pos.x / gridSize) * gridSize;
           const snappedY = Math.round(pos.y / gridSize) * gridSize;
-          setCurrentStroke(prev => {
+          setCurrentStroke((prev) => {
             let points = [...prev.points];
             if (tool === "wall") {
               points = [points[0], points[1], snappedX, snappedY];
@@ -423,7 +667,7 @@ export default function Template({
             return { ...prev, points };
           });
         }
-        if (currentStroke && currentStroke.points.length >= 4) { // at least two points
+        if (currentStroke && currentStroke.points.length >= 4) {
           const newStroke = {
             id: Date.now(),
             points: currentStroke.points,
@@ -434,7 +678,7 @@ export default function Template({
             thickness: currentStroke.thickness,
             isWall: currentStroke.isWall,
             isEraser: currentStroke.isEraser,
-            material
+            material,
           };
           setStrokes((prev) => [...prev, newStroke]);
         }
@@ -451,41 +695,39 @@ export default function Template({
       const y1 = Math.min(y, y + height);
       const y2 = Math.max(y, y + height);
 
-      const hitStrokes = strokes.filter(
-        (s) =>
-          s.layer_id === activeLayerId &&
-          s.points.some(
-            (_, i) =>
-              i % 2 === 0 &&
-              s.points[i] >= x1 &&
-              s.points[i] <= x2 &&
-              s.points[i + 1] >= y1 &&
-              s.points[i + 1] <= y2
-          )
-      );
+      // Use Konva nodes' rects relative to the active layer (same space as selectionBox)
+      const layer = activeLayerRef.current;
+      const intersectsRect = (rect) => {
+        const L = rect.x, R = rect.x + rect.width, T = rect.y, B = rect.y + rect.height;
+        return !(R < x1 || L > x2 || B < y1 || T > y2);
+      };
+      const nodes = layer
+        ? layer.find((n) => {
+            const cls = n.getClassName?.();
+            return ["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls) && n.id?.();
+          })
+        : [];
+      const hitIds = nodes
+        .filter((n) => {
+          try {
+            const r = n.getClientRect({ relativeTo: layer });
+            return intersectsRect(r);
+          } catch {
+            return false;
+          }
+        })
+        .map((n) => parseInt(n.id(), 10))
+        .filter((id) => Number.isFinite(id))
+        // Exclude locked/anchored items from marquee selection
+        .filter((id) => {
+          const st = strokes.find(s => s.id === id);
+          if (st && (st.locked || st.anchoredBlockId)) return false;
+          const sh = shapes.find(s => s.id === id);
+          if (sh && (sh.locked || sh.anchoredBlockId)) return false;
+          return true;
+        });
 
-      const hitShapes = shapes.filter(
-        (sh) => sh.layer_id === activeLayerId
-      ).filter((sh) => {
-        let left, right, top, bottom;
-        if (sh.type === "rect") {
-          left = sh.x;
-          right = sh.x + (sh.width || 0);
-          top = sh.y;
-          bottom = sh.y + (sh.height || 0);
-        } else if (sh.type === "circle") {
-          const r = sh.radius || 0;
-          left = sh.x - r;
-          right = sh.x + r;
-          top = sh.y - r;
-          bottom = sh.y + r;
-        } else {
-          return false;
-        }
-        return left <= x2 && right >= x1 && top <= y2 && bottom >= y1;
-      });
-
-      const hits = [...hitStrokes, ...hitShapes];
+      const hits = Array.from(new Set(hitIds)).map((id) => ({ id }));
 
       if (hits.length > 1) {
         setSelectedId(hits.map((h) => h.id));
@@ -501,10 +743,26 @@ export default function Template({
   const renderGuides = () => {
     const range = 2000;
     return guides.map((guide, i) => {
-      if (guide.orientation === 'V') {
-        return <Line key={i} points={[guide.position, -range, guide.position, range]} stroke="#0ea5a7" strokeWidth={1} dash={[4, 4]} />;
+      if (guide.orientation === "V") {
+        return (
+          <Line
+            key={i}
+            points={[guide.position, -range, guide.position, range]}
+            stroke="#0ea5a7"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        );
       } else {
-        return <Line key={i} points={[-range, guide.position, range, guide.position]} stroke="#0ea5a7" strokeWidth={1} dash={[4, 4]} />;
+        return (
+          <Line
+            key={i}
+            points={[-range, guide.position, range, guide.position]}
+            stroke="#0ea5a7"
+            strokeWidth={1}
+            dash={[4, 4]}
+          />
+        );
       }
     });
   };
@@ -519,7 +777,7 @@ export default function Template({
     const pointer = stage.getPointerPosition();
     const mousePoint = {
       x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale
+      y: (pointer.y - stage.y()) / oldScale,
     };
 
     const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
@@ -527,7 +785,7 @@ export default function Template({
 
     const newPos = {
       x: pointer.x - mousePoint.x * clamped,
-      y: pointer.y - mousePoint.y * clamped
+      y: pointer.y - mousePoint.y * clamped,
     };
 
     setCamera({ x: newPos.x, y: newPos.y, scale: clamped });
@@ -538,33 +796,67 @@ export default function Template({
     const stage = stageRef.current;
     if (!tr || !stage) return;
 
+    const hasFiniteRect = (n) => {
+      try {
+        const r = n.getClientRect();
+        return (
+          Number.isFinite(r.x) &&
+          Number.isFinite(r.y) &&
+          Number.isFinite(r.width) &&
+          Number.isFinite(r.height)
+        );
+      } catch (_) {
+        return false;
+      }
+    };
+
     tr.off("transformend");
 
-    if (Array.isArray(selectedId)) {
-      const nodes = selectedId.map((id) => stage.findOne(`#${id}`)).filter(Boolean);
-      tr.nodes(nodes);
-      if (nodes.length > 0) {
+    if (Array.isArray(selectedId) && selectedId.length) {
+      const nodes = selectedId
+        .map((id) => stage.findOne(`#${id}`))
+        .filter(Boolean)
+        .filter((n) => hasFiniteRect(n));
+      if (nodes.length) {
+        tr.nodes(nodes);
         tr.on("transformend", handleTransformEnd);
+      } else {
+        tr.nodes([]);
       }
-    } else if (selectedId) {
+    } else if (!Array.isArray(selectedId) && selectedId) {
       const node = stage.findOne(`#${selectedId}`);
-      if (node) {
+      if (node && hasFiniteRect(node)) {
         tr.nodes([node]);
         tr.on("transformend", handleTransformEnd);
+      } else {
+        tr.nodes([]);
       }
     } else {
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, strokes, shapes]);
+  }, [selectedId, strokes, shapes, activeLayerId]);
 
   const renderGrid = () => {
     const lines = [];
     const size = gridSize;
     for (let i = -2000; i < 2000; i += size) {
+      const isThick = (Math.round(i / size) % 5 === 0);
       lines.push(
-        <Line key={`v${i}`} points={[i, -2000, i, 2000]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />,
-        <Line key={`h${i}`} points={[-2000, i, 2000, i]} stroke="#2b2b2b" strokeWidth={1 / camera.scale} />
+        <Line
+          key={`v${i}`}
+          points={[i, -2000, i, 2000]}
+          stroke="#2b2b2b"
+          strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+          opacity={isThick ? 0.7 : 1}
+        />,
+        <Line
+          key={`h${i}`}
+          points={[-2000, i, 2000, i]}
+          stroke="#2b2b2b"
+          strokeWidth={isThick ? 2.5 / camera.scale : 1 / camera.scale}
+          opacity={isThick ? 0.7 : 1}
+        />
       );
     }
     return lines;
@@ -572,6 +864,11 @@ export default function Template({
 
   const handleSelectObject = (id) => {
     if (tool === "select") {
+      // Skip locked/anchored items
+      const blocked =
+        strokes.some(s => s.id === id && (s.locked || s.anchoredBlockId)) ||
+        shapes.some(s => s.id === id && (s.locked || s.anchoredBlockId));
+      if (blocked) return;
       setSelectedId(id);
     }
   };
@@ -581,7 +878,7 @@ export default function Template({
       <Stage
         ref={stageRef}
         width={window.innerWidth - 320}
-        height={window.innerHeight - 56 - 48} // Adjust for bottom bar
+        height={window.innerHeight - 56 - 48}
         scaleX={camera.scale}
         scaleY={camera.scale}
         x={camera.x}
@@ -593,40 +890,44 @@ export default function Template({
         style={{ background: "#0f1720" }}
         onContextMenu={(e) => e.evt.preventDefault()}
       >
-        <Layer>{renderGrid()}</Layer>
-        <Layer>{renderGuides()}</Layer>
+        {/* Non-interactive helpers so Stage receives clicks anywhere */}
+        <Layer listening={false}>{renderGrid()}</Layer>
+        <Layer listening={false}>{renderGuides()}</Layer>
         {/* Background Layer for inactive layers */}
         <Layer>
           {strokes
-            .filter((s) => s.layer_id !== activeLayerId)
+            .filter((s) => !isSameLayer(s.layer_id))
             .map((s) => (
               <Line
                 key={`bg-${s.id}`}
-                points={s.points}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
                 stroke={s.color}
-                strokeWidth={s.thickness}
+                strokeWidth={num(s.thickness, 1)}
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
-                opacity={0.5}
+                opacity={inactiveOpacity}
                 draggable={false}
                 listening={false}
               />
             ))}
           {shapes
-            .filter((sh) => sh.layer_id !== activeLayerId)
+            .filter((sh) => !isSameLayer(sh.layer_id))
             .map((sh) => {
+              const fill = sh.color || sh.fill || "#9CA3AF";
               if (sh.type === "rect") {
                 return (
                   <Rect
                     key={`bg-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    width={sh.width}
-                    height={sh.height}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
-                    opacity={0.5}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    width={num(sh.width)}
+                    height={num(sh.height)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
                     draggable={false}
                     listening={false}
                   />
@@ -636,12 +937,43 @@ export default function Template({
                 return (
                   <Circle
                     key={`bg-${sh.id}`}
-                    x={sh.x}
-                    y={sh.y}
-                    radius={sh.radius}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
-                    opacity={0.5}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radius={num(sh.radius)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "oval") {
+                return (
+                  <Ellipse
+                    key={`bg-${sh.id}`}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    radiusX={num(sh.radiusX)}
+                    radiusY={num(sh.radiusY)}
+                    fill={fill}
+                    rotation={num(sh.rotation)}
+                    opacity={inactiveOpacity}
+                    draggable={false}
+                    listening={false}
+                  />
+                );
+              }
+              if (sh.type === "polygon") {
+                return (
+                  <Path
+                    key={`bg-${sh.id}`}
+                    data={pointsToPath(sh.points)}
+                    x={num(sh.x)}
+                    y={num(sh.y)}
+                    rotation={num(sh.rotation)}
+                    fill={sh.fill || sh.color || "#9CA3AF"}
+                    opacity={inactiveOpacity}
                     draggable={false}
                     listening={false}
                   />
@@ -650,76 +982,275 @@ export default function Template({
               return null;
             })}
         </Layer>
-        {/* Active Layer */}
+
+        {/* Preview Layer */}
         <Layer>
+          {previewStrokes
+            .filter((s) => isSameLayer(s.layer_id))
+            .map((s) => (
+              <Line
+                key={`preview-${s.id}`}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
+                stroke={s.color}
+                strokeWidth={num(s.thickness, 1)}
+                lineCap="round"
+                lineJoin="round"
+                tension={0.5}
+                dash={[5, 5]}
+                opacity={0.7}
+                draggable={false}
+                listening={false}
+              />
+            ))}
+          {previewShapes
+            .filter((sh) => isSameLayer(sh.layer_id))
+            .map((sh) => {
+              const fill = sh.color || sh.fill || "#9CA3AF";
+               if (sh.type === "rect") {
+                 return (
+                   <Rect
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     width={num(sh.width)}
+                     height={num(sh.height)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "circle") {
+                 return (
+                   <Circle
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radius={num(sh.radius)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "oval") {
+                 return (
+                   <Ellipse
+                     key={`preview-${sh.id}`}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               if (sh.type === "polygon") {
+                 return (
+                   <Path
+                     key={`preview-${sh.id}`}
+                     data={pointsToPath(sh.points)}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     rotation={num(sh.rotation)}
+                     fill={sh.fill || sh.color || "#9CA3AF"}
+                     opacity={0.7}
+                     dash={[5, 5]}
+                     draggable={false}
+                     listening={false}
+                   />
+                 );
+               }
+               return null;
+             })}
+        </Layer>
+
+        {/* Active Layer */}
+        <Layer ref={activeLayerRef}>
           {strokes
-            .filter((s) => s.layer_id === activeLayerId)
+            .filter((s) => isSameLayer(s.layer_id))
             .map((s) => (
               <Line
                 key={s.id}
                 id={s.id.toString()}
-                x={s.x || 0}
-                y={s.y || 0}
-                points={s.points}
+                x={num(s.x)}
+                y={num(s.y)}
+                points={Array.isArray(s.points) ? s.points.map((p) => num(p)) : []}
                 stroke={s.color}
-                strokeWidth={s.thickness}
+                strokeWidth={num(s.thickness, 1)}
                 lineCap="round"
                 lineJoin="round"
                 tension={0.5}
-                draggable={tool === "select"}
-                onClick={() => handleSelectObject(s.id)}
+                draggable={tool === "select" && !s.locked && !s.anchoredBlockId}
+                onClick={() => (!s.locked && !s.anchoredBlockId) && handleSelectObject(s.id)}
                 onDragStart={handleDragStart}
                 onDragMove={handleDragMove}
                 onDragEnd={handleDragEnd}
               />
             ))}
           {shapes
-            .filter((sh) => sh.layer_id === activeLayerId)
+            .filter((sh) => isSameLayer(sh.layer_id))
             .map((sh) => {
-              if (sh.type === "rect") {
-                return (
-                  <Rect
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    x={sh.x}
-                    y={sh.y}
-                    width={sh.width}
-                    height={sh.height}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              if (sh.type === "circle") {
-                return (
-                  <Circle
-                    key={sh.id}
-                    id={sh.id.toString()}
-                    x={sh.x}
-                    y={sh.y}
-                    radius={sh.radius}
-                    fill={sh.color || "#9CA3AF"}
-                    rotation={sh.rotation || 0}
-                    draggable={tool === "select"}
-                    onClick={() => handleSelectObject(sh.id)}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                  />
-                );
-              }
-              return null;
-            })}
+              const fill = sh.color || sh.fill || "#9CA3AF";
+               if (sh.type === "rect") {
+                 return (
+                   <Rect
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     width={num(sh.width)}
+                     height={num(sh.height)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               if (sh.type === "circle") {
+                 // Only render as Ellipse if both radii are valid numbers
+                 const hasValidEllipseRadii =
+                   Number.isFinite(sh.radiusX) && Number.isFinite(sh.radiusY) &&
+                   (sh.radiusX > 0 || sh.radiusY > 0);
+                if (hasValidEllipseRadii) {
+                   return (
+                     <Ellipse
+                       key={sh.id}
+                       id={sh.id.toString()}
+                       x={num(sh.x)}
+                       y={num(sh.y)}
+                       radiusX={num(sh.radiusX)}
+                       radiusY={num(sh.radiusY)}
+                       fill={fill}
+                       rotation={num(sh.rotation)}
+                       draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                       onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                       onDragStart={handleDragStart}
+                       onDragMove={handleDragMove}
+                       onDragEnd={handleDragEnd}
+                     />
+                   );
+                 }
+                 // Otherwise true circle
+                 return (
+                   <Circle
+                     key={sh.id}
+                       id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radius={num(sh.radius)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               if (sh.type === "oval") {
+                 return (
+                   <Ellipse
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     radiusX={num(sh.radiusX)}
+                     radiusY={num(sh.radiusY)}
+                     fill={fill}
+                     rotation={num(sh.rotation)}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               if (sh.type === "polygon") {
+                 return (
+                   <Path
+                     key={sh.id}
+                     id={sh.id.toString()}
+                     data={pointsToPath(sh.points)}
+                     x={num(sh.x)}
+                     y={num(sh.y)}
+                     rotation={num(sh.rotation)}
+                     fill={sh.fill || sh.color}
+                     stroke={sh.stroke || undefined}
+                     strokeWidth={num(sh.strokeWidth, 0)}
+                     hitStrokeWidth={12}
+                     draggable={tool === "select" && !sh.locked && !sh.anchoredBlockId}
+                     onClick={() => (!sh.locked && !sh.anchoredBlockId) && handleSelectObject(sh.id)}
+                     onDragStart={handleDragStart}
+                     onDragMove={handleDragMove}
+                     onDragEnd={handleDragEnd}
+                   />
+                 );
+               }
+               return null;
+             })}
+         {/* Merged block overlays (click to unmerge) */}
+         {mergedBlocks
+           .filter(b => b.layer_id === activeLayerId)
+           .map(b => (
+             <Rect
+               key={`block-${b.id}`}
+               x={num(b.x)}
+               y={num(b.y)}
+               width={num(b.width)}
+               height={num(b.height)}
+               fill="rgba(6,182,212,0.08)"
+               stroke="#06b6d4"
+               strokeWidth={1}
+               dash={[6, 6]}
+               listening={true}
+               onClick={(e) => { e.cancelBubble = true; onUnmergeBlock(b.id); }}
+               onTap={(e) => { e.cancelBubble = true; onUnmergeBlock(b.id); }}
+               draggable={false}
+             />
+           ))}
+         {/* Anchor block overlays (static, non-interactive) */}
+         {anchoredBlocks
+           .filter(b => b.layer_id === activeLayerId)
+           .map(b => (
+             <Rect
+               key={`anchor-${b.id}`}
+               x={num(b.x)}
+               y={num(b.y)}
+               width={num(b.width)}
+               height={num(b.height)}
+               fill="rgba(234,179,8,0.08)"     
+               stroke="#f59e0b"
+               strokeWidth={1.5}
+               dash={[8, 4]}
+               listening={false}              // ignore clicks; block is static
+               draggable={false}
+             />
+           ))}
           {currentStroke && (
             <Line
-              points={currentStroke.points}
+              points={Array.isArray(currentStroke.points) ? currentStroke.points.map((p) => num(p)) : []}
               stroke={currentStroke.color}
-              strokeWidth={currentStroke.thickness}
+              strokeWidth={num(currentStroke.thickness, 1)}
               lineCap="round"
               lineJoin="round"
               tension={0.5}

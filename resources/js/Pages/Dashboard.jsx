@@ -1,82 +1,53 @@
 import React, { useState, useEffect } from "react";
 import { Link, usePage } from "@inertiajs/react";
-import { Inertia } from "@inertiajs/inertia";
 import axios from "axios";
 import { motion } from "framer-motion";
+import { Plus, Folder, Trash2, LogOut, User } from "lucide-react";
 
-function Dashboard() {
+export default function Dashboard() {
   const page = usePage();
   const auth = page?.props?.auth || { user: null };
   const [projects, setProjects] = useState([]);
 
   useEffect(() => {
     if (auth.user) {
-      axios
-        .get("/projects")
-        .then((response) => {
-          setProjects(response.data.projects || []);
-        })
-        .catch((err) => console.error("Error fetching projects:", err));
+      axios.get("/projects")
+        .then((res) => setProjects(res.data.projects || []))
+        .catch((err) => console.error(err));
     }
   }, [auth.user]);
 
-const createProject = async () => {
-  try {
-    const response = await axios.post("/projects", {
-      name: "Untitled Project",
-    });
-    // backend may return data.id or data.project.id — support both
-    const newId = response.data?.id || response.data?.project?.id || response.data?.project?.id;
-    if (!newId) {
-      console.error("Unexpected project create response:", response.data);
-      alert("Failed to create project (no id returned).");
-      return;
+  const createProject = async () => {
+    try {
+      const res = await axios.post("/projects", { name: "Untitled Project" });
+      const id = res.data?.id || res.data?.project?.id;
+      if (id) window.location.href = `/editor/${id}`;
+    } catch (err) {
+      console.error(err);
+      alert("Failed to create project.");
     }
-    window.location.href = `/editor/${newId}`;
-  } catch (error) {
-    console.error("Error creating project:", error.response?.data || error);
-    alert("Failed to create project.");
-  }
-};
-
-  const logout = () => {
-    Inertia.post("/logout");
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-gray-100 flex flex-col">
       {/* Navbar */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-950/60 backdrop-blur-md">
-        <Link href="/" className="text-2xl font-extrabold tracking-wide text-cyan-400">
-          Blueprint<span className="text-fuchsia-500">App</span>
+      <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-950/60 backdrop-blur-xl">
+        <Link href="/" className="text-2xl font-bold tracking-wide text-cyan-400">
+          Blueprint<span className="text-fuchsia-500">OS</span>
         </Link>
         <div className="flex items-center space-x-4">
-          {auth.user ? (
-            <>
-              <Link
-                href="/profile"
-                className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 transition"
-              >
-            
-                <span>Profile</span>
-              </Link> 
-              <button
-                onClick={logout}
-                className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 transition"
-              >
-                <span>Logout</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <Link href="/login" className="hover:text-cyan-400 transition">
-                Login
-              </Link>
-              <Link href="/register" className="hover:text-cyan-400 transition">
-                Register
-              </Link>
-            </>
-          )}
+          <Link href="/profile" className="flex items-center gap-1 px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 transition">
+            <User size={16} /> Profile
+          </Link>
+          <button
+            onClick={async () => {
+              await axios.post("/logout");
+              window.location.href = "/";
+            }}
+            className="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 transition"
+          >
+            <LogOut size={16} /> Logout
+          </button>
         </div>
       </nav>
 
@@ -87,7 +58,7 @@ const createProject = async () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-3xl font-bold mb-6 text-cyan-300"
         >
-          Dashboard
+          Your Projects
         </motion.h1>
 
         {auth.user ? (
@@ -96,12 +67,11 @@ const createProject = async () => {
               onClick={createProject}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="flex items-center space-x-2 px-5 py-2 mb-6 rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-400 hover:to-fuchsia-500 shadow-lg shadow-cyan-500/30"
+              className="flex items-center gap-2 px-5 py-2 mb-8 rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:shadow-cyan-500/40 shadow-lg"
             >
-              <span>Create Project</span>
+              <Plus size={18} /> Create Project
             </motion.button>
 
-            <h2 className="text-xl font-semibold mb-4 text-gray-200">Your Projects</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {projects.map((project, i) => (
                 <motion.div
@@ -109,9 +79,11 @@ const createProject = async () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className="bg-gray-900/80 backdrop-blur-lg p-5 rounded-xl border border-gray-700 shadow-lg hover:shadow-cyan-500/30 transition"
+                  className="bg-gray-900/80 p-5 rounded-xl border border-gray-700 shadow-lg hover:shadow-cyan-500/20 transition"
                 >
-                  <h3 className="font-bold text-lg text-cyan-400">{project.name}</h3>
+                  <h3 className="font-bold text-lg text-cyan-400 flex items-center gap-2">
+                    <Folder size={18} /> {project.name}
+                  </h3>
                   <p className="text-sm text-gray-400">ID: {project.id}</p>
                   <div className="flex space-x-3 mt-4">
                     <Link
@@ -129,9 +101,9 @@ const createProject = async () => {
                           );
                         }
                       }}
-                      className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 transition"
+                      className="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 transition"
                     >
-                      Delete
+                      <Trash2 size={16} /> Delete
                     </button>
                   </div>
                 </motion.div>
@@ -139,13 +111,9 @@ const createProject = async () => {
             </div>
           </>
         ) : (
-          <p className="text-gray-400">
-            Guests cannot create or load projects. Please log in.
-          </p>
+          <p className="text-gray-400">Please log in to manage projects.</p>
         )}
       </div>
     </div>
   );
 }
-
-export default Dashboard;

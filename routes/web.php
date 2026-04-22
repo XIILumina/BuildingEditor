@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\OpenAIController;
 use App\Http\Controllers\EditController;
+use App\Http\Controllers\AnchorBlockController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -34,8 +35,14 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/editor/{id}', fn($id) => Inertia::render('Editor/EditorApp', ['projectId' => $id]))->name('editor');
     Route::get('/edit', [EditController::class, 'index'])->name('edit.index');
+    Route::post('/editor/anchor-block/store', [AnchorBlockController::class, 'store']);
+    Route::put('/editor/anchor-block/{id}', [AnchorBlockController::class, 'update']);
+    Route::delete('/editor/anchor-block/{id}', [AnchorBlockController::class, 'destroy']);
+
 
     Route::post('/openai/chat', [OpenAIController::class, 'chat']);
+    Route::post('/openai/promptblock', [OpenAIController::class, 'promptblock']);
+    Route::post('/openai/aidrawsuggestion', [OpenAIController::class, 'AiDrawSuggestion']);
     
 Route::middleware(['auth'])->group(function () {
     Route::get('/projects', [ProjectController::class, 'index']);

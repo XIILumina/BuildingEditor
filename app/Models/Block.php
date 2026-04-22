@@ -1,0 +1,36 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Block extends Model
+{
+    protected $fillable = [
+        'layer_id',
+        'object_id', // JSON array of IDs
+        'points',
+        'width',
+        'height',
+        'anchor_x',
+        'anchor_y',
+    ];
+
+    protected $casts = [
+        'object_id' => 'array',
+        'points' => 'array',
+        'width' => 'integer',
+        'height' => 'integer',
+        'anchor_x' => 'integer',
+        'anchor_y' => 'integer',
+    ];
+
+    public function shapes()
+    {
+        return $this->hasMany(Shape::class, 'shape_id');
+    }
+    public function layer()
+    {
+        return $this->belongsTo(Layer::class);
+    }
+}

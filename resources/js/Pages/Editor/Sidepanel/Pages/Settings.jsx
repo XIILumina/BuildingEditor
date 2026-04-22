@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-export default function Settings({ gridSize, setGridSize, units, setUnits }) {
+export default function Settings({ gridSize, setGridSize, units, setUnits, pxPerMeter, setPxPerMeter }) {
   return (
     <motion.div
       className="p-4 bg-[#1e293b] border border-[#334155] shadow-md"
@@ -31,6 +31,15 @@ export default function Settings({ gridSize, setGridSize, units, setUnits }) {
           <option>Metric</option>
           <option>Imperial</option>
         </select>
+      </div>
+      <div className="mb-4">
+        <label className="block text-sm mb-2 text-[#f3f4f6]">Pixels per Meter</label>
+        <input
+          type="number"
+          value={pxPerMeter}
+          onChange={(e) => setPxPerMeter(parseInt(e.target.value, 10))}
+          className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
+        />
       </div>
     </motion.div>
   );

@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('erasers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('layer_id')->constrained()->cascadeOnDelete();
-            $table->text('points'); // JSON array
+            $table->json('points'); // JSON array
             $table->integer('thickness')->default(6);
             $table->timestamps();
         });

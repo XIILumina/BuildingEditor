@@ -7,6 +7,7 @@ use App\Models\Layer;
 use App\Models\Stroke;
 use App\Models\Eraser;
 use App\Models\Shape;
+use App\Models\Block;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -81,8 +82,15 @@ class ProjectController extends Controller
                     'width' => $sh->width,
                     'height' => $sh->height,
                     'radius' => $sh->radius,
+                    'radiusX' => $sh->radiusX,
+                    'radiusY' => $sh->radiusY,
                     'color' => $sh->color,
+                    'fill' => $sh->fill,
+                    'stroke' => $sh->stroke,
+                    'strokeWidth' => $sh->strokeWidth,
                     'rotation' => $sh->rotation ?? 0,
+                    'closed' => (bool)$sh->closed,
+                    'points' => is_string($sh->points) ? json_decode($sh->points, true) : $sh->points,
                 ];
             }
         }
@@ -115,7 +123,6 @@ class ProjectController extends Controller
             $data = $request->input('data', []);
             $incomingLayers = $data['layers'] ?? [];
 
-            // Sync layers
             $layerMap = [];
             foreach ($incomingLayers as $l) {
                 $layer = Layer::updateOrCreate(
@@ -125,7 +132,6 @@ class ProjectController extends Controller
                 $layerMap[$l['id'] ?? $layer->id] = $layer->id;
             }
 
-            // Delete removed layers
             $currentLayerIds = array_values($layerMap);
             Layer::where('project_id', $project->id)
                  ->whereNotIn('id', $currentLayerIds)
@@ -150,14 +156,12 @@ class ProjectController extends Controller
                     'isWall' => $s['isWall'] ?? false,
                     'material' => $s['material'] ?? null,
                 ];
-                if (!empty($s['id'])) {
-                    $stroke = Stroke::updateOrCreate(['id' => $s['id']], $attrs);
-                } else {
-                    $stroke = Stroke::create($attrs);
-                }
+                $stroke = !empty($s['id'])
+                    ? Stroke::where('id', $s['id'])->whereIn('layer_id', $layerIds)->first()
+                    : null;
+                $stroke = $stroke ? tap($stroke)->update($attrs) : Stroke::create($attrs);
                 $incomingStrokeIds[] = $stroke->id;
             }
-            // remove strokes that are gone
             Stroke::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingStrokeIds)->delete();
 
             // erasers
@@ -169,11 +173,10 @@ class ProjectController extends Controller
                     'points' => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
                     'thickness' => $e['thickness'] ?? 6,
                 ];
-                if (!empty($e['id'])) {
-                    $er = Eraser::updateOrCreate(['id' => $e['id']], $attrs);
-                } else {
-                    $er = Eraser::create($attrs);
-                }
+                $er = !empty($e['id'])
+                    ? Eraser::where('id', $e['id'])->whereIn('layer_id', $layerIds)->first()
+                    : null;
+                $er = $er ? tap($er)->update($attrs) : Eraser::create($attrs);
                 $incomingEraserIds[] = $er->id;
             }
             Eraser::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingEraserIds)->delete();
@@ -182,33 +185,45 @@ class ProjectController extends Controller
             $incomingShapeIds = [];
             foreach ($data['shapes'] ?? [] as $sh) {
                 $layerId = $layerMap[$sh['layer_id']] ?? $layerIds[0];
+                $type = $sh['type'] ?? 'rect';
+
                 $attrs = [
                     'layer_id' => $layerId,
-                    'type' => $sh['type'] ?? 'rect',
+                    'type' => $type,
                     'x' => $sh['x'] ?? 0,
                     'y' => $sh['y'] ?? 0,
-                    'width' => $sh['width'] ?? null,
-                    'height' => $sh['height'] ?? null,
-                    'radius' => $sh['radius'] ?? null,
-                    'color' => $sh['color'] ?? '#9CA3AF',
+                    // Ensure NOT NULL color: fallback to fill or default
+                    'color' => $sh['color'] ?? ($sh['fill'] ?? '#9CA3AF'),
                     'rotation' => $sh['rotation'] ?? 0,
                 ];
-                if (!empty($sh['id'])) {
-                    $shape = Shape::updateOrCreate(['id' => $sh['id']], $attrs);
-                } else {
-                    $shape = Shape::create($attrs);
+                if ($type === 'rect') {
+                    $attrs['width'] = $sh['width'] ?? null;
+                    $attrs['height'] = $sh['height'] ?? null;
+                } elseif ($type === 'circle') {
+                    $attrs['radius'] = $sh['radius'] ?? null;
+                } elseif ($type === 'oval') {
+                    $attrs['radiusX'] = $sh['radiusX'] ?? null;
+                    $attrs['radiusY'] = $sh['radiusY'] ?? null;
+                } elseif ($type === 'polygon') {
+                    $attrs['points'] = isset($sh['points']) ? json_encode($sh['points']) : null;
+                    $attrs['fill'] = $sh['fill'] ?? ($sh['color'] ?? '#9CA3AF');
+                    $attrs['closed'] = $sh['closed'] ?? true;
                 }
+
+                $shape = !empty($sh['id'])
+                    ? Shape::where('id', $sh['id'])->whereIn('layer_id', $layerIds)->first()
+                    : null;
+
+                $shape = $shape ? tap($shape)->update($attrs) : Shape::create($attrs);
                 $incomingShapeIds[] = $shape->id;
             }
             Shape::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingShapeIds)->delete();
 
-            // Update project name
             if (isset($data['projectName'])) {
                 $project->name = $data['projectName'];
                 $project->save();
             }
 
-            // Update project settings
             $project->update([
                 'grid_size' => $data['gridSize'] ?? null,
                 'units' => $data['units'] ?? null,
@@ -225,6 +240,29 @@ class ProjectController extends Controller
         $project = Project::where('id', $id)->where('user_id', auth()->id())->firstOrFail();
         $project->delete();
         return response()->json(['success' => true]);
+    }
+    public function exportJson($id)
+    {
+        $project = Project::where('id', $id)
+            ->where('user_id', auth()->id())
+            ->with('layers.strokes', 'layers.erasers', 'layers.shapes')
+            ->firstOrFail();
+
+        $data = [
+            'project' => [
+                'id' => $project->id,
+                'name' => $project->name,
+                'layers' => $project->layers,
+            ],
+        ];
+
+        $filename = 'project_' . $id . '.json';
+        return response()->streamDownload(function () use ($data) {
+            echo json_encode($data, JSON_PRETTY_PRINT);
+        }, $filename, [
+            'Content-Type' => 'application/json',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
     }
     
     public function updateName(Request $request, $id)
@@ -249,7 +287,7 @@ class ProjectController extends Controller
             'order' => $order,
         ]);
 
-        return response()->json(['layer' => $layer]);
+        return response()->json(['layer' => $layer]);   
     }
    public function exportPNG($id)
     {
@@ -278,6 +316,27 @@ class ProjectController extends Controller
                     $minY = min($minY, $centerY - $radius);
                     $maxX = max($maxX, $centerX + $radius);
                     $maxY = max($maxY, $centerY + $radius);
+                } elseif ($shape->type === 'oval') {
+                    $rx = $shape->radiusX ?? 40;
+                    $ry = $shape->radiusY ?? 30;
+                    $centerX = $shape->x ?? 0;
+                    $centerY = $shape->y ?? 0;
+                    $minX = min($minX, $centerX - $rx);
+                    $minY = min($minY, $centerY - $ry);
+                    $maxX = max($maxX, $centerX + $rx);
+                    $maxY = max($maxY, $centerY + $ry);
+                } elseif ($shape->type === 'polygon') {
+                    $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
+                    $offX = (int)($shape->x ?? 0);
+                    $offY = (int)($shape->y ?? 0);
+                    for ($i = 0; $i < count($pts); $i += 2) {
+                        $px = (int)($pts[$i] ?? 0) + $offX;
+                        $py = (int)($pts[$i + 1] ?? 0) + $offY;
+                        $minX = min($minX, $px);
+                        $minY = min($minY, $py);
+                        $maxX = max($maxX, $px);
+                        $maxY = max($maxY, $py);
+                    }
                 }
             }
             foreach ($layer->strokes as $stroke) {
@@ -298,6 +357,12 @@ class ProjectController extends Controller
                     $maxY = max($maxY, $points[$i + 1]);
                 }
             }
+        }
+
+        if ($minX === PHP_INT_MAX || $minY === PHP_INT_MAX || $maxX === PHP_INT_MIN || $maxY === PHP_INT_MIN) {
+            // Nothing to draw; set reasonable defaults
+            $minX = $minY = 0;
+            $maxX = $maxY = 1000;
         }
 
         // Set canvas size with padding
@@ -317,26 +382,52 @@ class ProjectController extends Controller
             // Draw shapes
             foreach ($layer->shapes as $shape) {
                 // Parse color (default to black if invalid)
-                $color = $shape->color ? sscanf($shape->color, "#%02x%02x%02x") : [0, 0, 0];
-                $imgColor = imagecolorallocate($image, $color[0], $color[1], $color[2]);
+                $hex = $shape->fill ?: $shape->color;
+                $hex = $hex ?: '#000000';
+                $rgb = sscanf($hex, "#%02x%02x%02x");
+                $imgColor = imagecolorallocate($image, $rgb[0], $rgb[1], $rgb[2]);
 
                 // Adjust coordinates with offset
                 switch ($shape->type) {
                     case 'rect':
-                        $x = ($shape->x ?? 0) + $offsetX;
-                        $y = ($shape->y ?? 0) + $offsetY;
-                        $width = $shape->width ?? 100;
-                        $height = $shape->height ?? 60;
-                        if ($width > 0 && $height > 0) {
-                            imagefilledrectangle($image, $x, $y, $x + $width, $y + $height, $imgColor);
+                        $x = (int)(($shape->x ?? 0) + $offsetX);
+                        $y = (int)(($shape->y ?? 0) + $offsetY);
+                        $w = (int)($shape->width ?? 100);
+                        $h = (int)($shape->height ?? 60);
+                        if ($w > 0 && $h > 0) {
+                            imagefilledrectangle($image, $x, $y, $x + $w, $y + $h, $imgColor);
                         }
                         break;
                     case 'circle':
-                        $centerX = ($shape->x ?? 0) + $offsetX;
-                        $centerY = ($shape->y ?? 0) + $offsetY;
-                        $radius = $shape->radius ?? 40;
+                        $centerX = (int)(($shape->x ?? 0) + $offsetX);
+                        $centerY = (int)(($shape->y ?? 0) + $offsetY);
+                        $radius = (int)($shape->radius ?? 40);
                         if ($radius > 0) {
                             imagefilledellipse($image, $centerX, $centerY, $radius * 2, $radius * 2, $imgColor);
+                        }
+                        break;
+                    case 'oval':
+                        $centerX = (int)(($shape->x ?? 0) + $offsetX);
+                        $centerY = (int)(($shape->y ?? 0) + $offsetY);
+                        $rx = (int)($shape->radiusX ?? 40);
+                        $ry = (int)($shape->radiusY ?? 30);
+                        if ($rx > 0 && $ry > 0) {
+                            imagefilledellipse($image, $centerX, $centerY, $rx * 2, $ry * 2, $imgColor);
+                        }
+                        break;
+                    case 'polygon':
+                        $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
+                        if (is_array($pts) && count($pts) >= 6 && count($pts) % 2 === 0) {
+                            $offX = (int)(($shape->x ?? 0) + $offsetX);
+                            $offY = (int)(($shape->y ?? 0) + $offsetY);
+                            $abs = [];
+                            for ($i = 0; $i < count($pts); $i += 2) {
+                                $abs[] = (int)($pts[$i] + $offX);
+                                $abs[] = (int)($pts[$i + 1] + $offY);
+                            }
+                            // GD expects a flat array of coordinates
+                            $numPoints = count($abs) / 2;
+                            imagefilledpolygon($image, $abs, $numPoints, $imgColor);
                         }
                         break;
                 }
@@ -352,10 +443,10 @@ class ProjectController extends Controller
                 imagesetthickness($image, max(1, (int)($stroke->thickness ?? 6)));
 
                 for ($i = 0; $i < count($points) - 2; $i += 2) {
-                    $x1 = $points[$i] + $offsetX;
-                    $y1 = $points[$i + 1] + $offsetY;
-                    $x2 = $points[$i + 2] + $offsetX;
-                    $y2 = $points[$i + 3] + $offsetY;
+                    $x1 = (int)($points[$i] + $offsetX);
+                    $y1 = (int)($points[$i + 1] + $offsetY);
+                    $x2 = (int)($points[$i + 2] + $offsetX);
+                    $y2 = (int)($points[$i + 3] + $offsetY);
                     imageline($image, $x1, $y1, $x2, $y2, $imgColor);
                 }
             }
@@ -369,10 +460,10 @@ class ProjectController extends Controller
                 imagesetthickness($image, max(1, (int)($eraser->thickness ?? 40)));
 
                 for ($i = 0; $i < count($points) - 2; $i += 2) {
-                    $x1 = $points[$i] + $offsetX;
-                    $y1 = $points[$i + 1] + $offsetY;
-                    $x2 = $points[$i + 2] + $offsetX;
-                    $y2 = $points[$i + 3] + $offsetY;
+                    $x1 = (int)($points[$i] + $offsetX);
+                    $y1 = (int)($points[$i + 1] + $offsetY);
+                    $x2 = (int)($points[$i + 2] + $offsetX);
+                    $y2 = (int)($points[$i + 3] + $offsetY);
                     imageline($image, $x1, $y1, $x2, $y2, $imgColor);
                 }
             }
@@ -385,4 +476,57 @@ class ProjectController extends Controller
         imagedestroy($image);
         exit;
     }
+    public function createBlockWithAnchor(Request $request)
+    {
+        $data = $request->validate([
+            'layer_id' => 'required|integer|exists:layers,id',
+            'object_ids' => 'required|array',
+            // points/width/height/anchor_x/anchor_y may be present in some callers
+            'points' => 'sometimes|array',
+            'width' => 'sometimes|numeric',
+            'height' => 'sometimes|numeric',
+            'anchor_x' => 'sometimes|numeric',
+            'anchor_y' => 'sometimes|numeric',
+        ]);
+
+        $round = function($v) { return is_numeric($v) ? round((float)$v, 1) : $v; };
+        $roundDeep = function($val) use (&$roundDeep, $round) {
+            if (is_array($val)) return array_map($roundDeep, $val);
+            return $round($val);
+        };
+
+        // Round optional geometry inputs
+        if (isset($data['points'])) $data['points'] = $roundDeep($data['points']);
+        if (isset($data['width'])) $data['width'] = $round($data['width']);
+        if (isset($data['height'])) $data['height'] = $round($data['height']);
+        if (isset($data['anchor_x'])) $data['anchor_x'] = $round($data['anchor_x']);
+        if (isset($data['anchor_y'])) $data['anchor_y'] = $round($data['anchor_y']);
+
+        $objects = \App\Models\Shape::whereIn('id', $data['object_ids'])->get();
+
+        // Calculate bounding box (rounded to 0.1)
+        $minX = $objects->min('x') ?? 0;
+        $minY = $objects->min('y') ?? 0;
+        $maxX = $objects->max(function($obj) { return ($obj->x ?? 0) + ($obj->width ?? $obj->radius ?? 0); }) ?? 0;
+        $maxY = $objects->max(function($obj) { return ($obj->y ?? 0) + ($obj->height ?? $obj->radius ?? 0); }) ?? 0;
+
+        $width = round($maxX - $minX, 1);
+        $height = round($maxY - $minY, 1);
+        $anchor_x = round($minX + ($width / 2), 1);
+        $anchor_y = round($minY + ($height / 2), 1);
+
+        $block = \App\Models\Block::create([
+            'layer_id' => (int)$data['layer_id'],
+            'object_ids' => json_encode($data['object_ids']),
+            'width' => $width,
+            'height' => $height,
+            'anchor_x' => $anchor_x,
+            'anchor_y' => $anchor_y,
+        ]);
+
+        return response()->json(['block' => $block]);
+    }
+
+
+
 }
