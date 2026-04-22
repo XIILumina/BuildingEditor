@@ -25,3 +25,4 @@ it('deletes a layer', function () {
 
     expect(Layer::find($layerId))->toBeNull();
 });
+

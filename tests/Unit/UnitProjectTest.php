@@ -16,5 +16,5 @@ it('creates a new project for a user', function () {
 
 it('fails to create a project without a user', function () {
     expect(fn() => Project::factory()->create(['user_id' => null]))
-        ->toThrow(\Illuminate\Database\QueryException::class);
+        ->toThrow(\Illuminate\Database\QueryException::class);  
 });
