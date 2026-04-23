@@ -11,14 +11,30 @@ import TextInput from '@/Components/TextInput';
 
 let aiRequestInProgress = false;
 
+const getCsrfToken = () => {
+  return document.head.querySelector('meta[name="csrf-token"]')?.content || null;
+};
+
 const askAI = async (prompt) => {
   if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
   aiRequestInProgress = true;
   try {
-    const res = await axios.post('/openai/chat', { prompt });
+    const csrf = getCsrfToken();
+    const res = await axios.post('/openai/chat',
+      {
+        prompt,
+        ...(csrf ? { _token: csrf } : {}),
+      },
+      {
+        headers: csrf ? { 'X-CSRF-TOKEN': csrf } : undefined,
+      }
+    );
     return { success: true, data: res.data.reply };
   } catch (err) {
     console.error("OpenAI error:", err);
+    if (err?.response?.status === 419) {
+      return { success: false, data: "Session expired or CSRF token mismatch (419). Refresh the page and try again." };
+    }
     return { success: false, data: "AI request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
@@ -29,13 +45,23 @@ const askAIDraw = async (prompt, projectData) => {
   if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
   aiRequestInProgress = true;
   try {
-    const res = await axios.post('/openai/aidrawsuggestion', {
-      prompt,
-      projectData: JSON.stringify(projectData),
-    });
+    const csrf = getCsrfToken();
+    const res = await axios.post('/openai/aidrawsuggestion',
+      {
+        prompt,
+        projectData: JSON.stringify(projectData),
+        ...(csrf ? { _token: csrf } : {}),
+      },
+      {
+        headers: csrf ? { 'X-CSRF-TOKEN': csrf } : undefined,
+      }
+    );
     return res.data;
   } catch (err) {
     console.error("OpenAI draw error:", err);
+    if (err?.response?.status === 419) {
+      return { success: false, data: "Session expired or CSRF token mismatch (419). Refresh the page and try again." };
+    }
     return { success: false, data: "AI draw request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
@@ -170,8 +196,7 @@ const confirmPreview = useCallback(() => {
         stroke &&
         Array.isArray(stroke.points) &&
         typeof stroke.color === "string" &&
-        typeof stroke.thickness === "number" &&
-        typeof stroke.isWall === "boolean";
+        typeof stroke.thickness === "number";
       return isValid;
     })
     .map((stroke) => ({
@@ -393,7 +418,7 @@ const selectedObject = useMemo(() => {
           return newS;
         }
 
-        if (property === 'length' && s.isWall && s.points.length === 4) {
+        if (property === 'length' && s.points.length === 4) {
           const [x1, y1, x2, y2] = s.points;
           const dx = x2 - x1;
           const dy = y2 - y1;

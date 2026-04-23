@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Stage, Layer, Line, Rect, Transformer } from "react-konva";
-import { detectRooms, isPointInPolygon, getLineIntersections } from "./utils/drawingUtils";
+import { detectRooms, isPointInPolygon } from "./utils/drawingUtils";
 import { num } from "./utils/shapeUtils";
 import { useCamera } from "./hooks/useCamera";
 import { useDrawing } from "./hooks/useDrawing";
@@ -232,6 +232,59 @@ export default function Template({
     }
   };
 
+  const shapeToBoundarySegments = (sh) => {
+    if (!sh) return [];
+    if (sh.type === "rect") {
+      const x = num(sh.x);
+      const y = num(sh.y);
+      const w = num(sh.width, 0);
+      const h = num(sh.height, 0);
+      if (w <= 0 || h <= 0) return [];
+      return [
+        { p1: [x, y], p2: [x + w, y] },
+        { p1: [x + w, y], p2: [x + w, y + h] },
+        { p1: [x + w, y + h], p2: [x, y + h] },
+        { p1: [x, y + h], p2: [x, y] },
+      ];
+    }
+    if (sh.type === "polygon" && Array.isArray(sh.points) && sh.points.length >= 6) {
+      const offX = num(sh.x);
+      const offY = num(sh.y);
+      const pts = [];
+      for (let i = 0; i < sh.points.length; i += 2) {
+        pts.push([num(sh.points[i]) + offX, num(sh.points[i + 1]) + offY]);
+      }
+      const segs = [];
+      for (let i = 0; i < pts.length; i++) {
+        segs.push({ p1: pts[i], p2: pts[(i + 1) % pts.length] });
+      }
+      return segs;
+    }
+    return [];
+  };
+
+  const getFillBoundaries = () => {
+    const lineSegments = strokes
+      .filter(s => isSameLayer(s.layer_id) && Array.isArray(s.points) && s.points.length >= 4)
+      .flatMap((s) => {
+        const segs = [];
+        for (let i = 0; i <= s.points.length - 4; i += 2) {
+          const x1 = num(s.points[i]);
+          const y1 = num(s.points[i + 1]);
+          const x2 = num(s.points[i + 2]);
+          const y2 = num(s.points[i + 3]);
+          segs.push({ p1: [x1, y1], p2: [x2, y2] });
+        }
+        return segs;
+      });
+
+    const shapeSegments = shapes
+      .filter(sh => isSameLayer(sh.layer_id))
+      .flatMap(shapeToBoundarySegments);
+
+    return [...lineSegments, ...shapeSegments];
+  };
+
   const handleMouseDown = e => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -249,12 +302,8 @@ export default function Template({
       if (!["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls) && !e.evt.ctrlKey && !e.evt.metaKey) setSelectedId(null);
     }
     if (tool === "fill") {
-      const walls = strokes.filter(s => s.isWall && s.layer_id === activeLayerId);
-      const intersectionPoints = getLineIntersections(walls);
-      let allWallPoints = [];
-      walls.forEach(wall => { for (let i = 0; i < wall.points.length; i += 2) allWallPoints.push([wall.points[i], wall.points[i + 1]]); });
-      allWallPoints = allWallPoints.concat(intersectionPoints);
-      const { rooms } = detectRooms(walls, allWallPoints);
+      const boundaries = getFillBoundaries();
+      const { rooms } = detectRooms(boundaries);
       const containingRoom = rooms.find(roomPoints => isPointInPolygon([pos.x, pos.y], roomPoints));
       if (containingRoom) setShapes(prev => [...prev, { id: Date.now(), type: "polygon", points: containingRoom.flat(), fill: drawColor, color: drawColor, closed: true, layer_id: activeLayerId }]);
       return;

@@ -44,11 +44,12 @@ export default function ShapeRenderer({
     onDragEnd,
   } : {};
 
-  const common = { key, id, draggable, listening, opacity, ...events };
+  const common = { id, draggable, listening, opacity, ...events };
 
   if (sh.type === 'rect') {
     return (
       <Rect
+        key={key}
         {...common}
         x={num(sh.x)} y={num(sh.y)}
         width={num(sh.width)} height={num(sh.height)}
@@ -63,6 +64,7 @@ export default function ShapeRenderer({
     if (Number.isFinite(sh.radiusX) && Number.isFinite(sh.radiusY) && (sh.radiusX > 0 || sh.radiusY > 0)) {
       return (
         <Ellipse
+          key={key}
           {...common}
           x={num(sh.x)} y={num(sh.y)}
           radiusX={num(sh.radiusX)} radiusY={num(sh.radiusY)}
@@ -74,6 +76,7 @@ export default function ShapeRenderer({
     }
     return (
       <Circle
+        key={key}
         {...common}
         x={num(sh.x)} y={num(sh.y)}
         radius={num(sh.radius)}
@@ -87,6 +90,7 @@ export default function ShapeRenderer({
   if (sh.type === 'oval') {
     return (
       <Ellipse
+        key={key}
         {...common}
         x={num(sh.x)} y={num(sh.y)}
         radiusX={num(sh.radiusX)} radiusY={num(sh.radiusY)}
@@ -100,6 +104,7 @@ export default function ShapeRenderer({
   if (sh.type === 'polygon') {
     return (
       <Path
+        key={key}
         {...common}
         data={pointsToPath(sh.points)}
         x={num(sh.x)} y={num(sh.y)}

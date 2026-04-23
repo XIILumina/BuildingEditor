@@ -65,10 +65,23 @@ export default function Welcome({ auth }) {
                             Design Without Limits
                         </motion.h1>
                         <p className="text-gray-400 text-lg mb-10 leading-relaxed">
-                            A futuristic 2D Drawing platform for visualizing,
-                            managing, and building your creative projects — powered
-                            by React, Inertia, and a touch of magic.
+                            Build floor plans faster with layered editing, AI-assisted
+                            suggestions, and precise geometry tools for real project work.
                         </p>
+
+                        {/* Quick value highlights for first-time visitors */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-10 text-sm">
+                            <div className="rounded-lg border border-gray-800 bg-gray-900/40 px-4 py-3 text-gray-300">
+                                AI-assisted draft generation
+                            </div>
+                            <div className="rounded-lg border border-gray-800 bg-gray-900/40 px-4 py-3 text-gray-300">
+                                Layer-based structural editing
+                            </div>
+                            <div className="rounded-lg border border-gray-800 bg-gray-900/40 px-4 py-3 text-gray-300">
+                                Wall, room, and fill workflows
+                            </div>
+                        </div>
+
                         <motion.div
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
@@ -85,7 +98,7 @@ export default function Welcome({ auth }) {
 
                 {/* Footer */}
                 <footer className="py-6 text-center text-sm text-gray-500 border-t border-gray-800">
-                    © {new Date().getFullYear()} HouseEditor · Crafted with 💎
+                    © {new Date().getFullYear()} HouseEditor · Plan. Design. Build.
                 </footer>
             </div>
         </>

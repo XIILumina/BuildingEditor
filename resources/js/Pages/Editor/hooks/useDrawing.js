@@ -82,7 +82,6 @@ export function useDrawing({
       points: [pos.x, pos.y],
       color: drawColor,
       thickness,
-      isWall: tool === 'wall',
       isEraser: false,
     });
   }, [drawColor, thickness, tool]);
@@ -135,7 +134,6 @@ export function useDrawing({
           layer_id: activeLayerId,
           color: prev.color,
           thickness: prev.thickness,
-          isWall: prev.isWall,
           isEraser: prev.isEraser,
           material,
         }]);
