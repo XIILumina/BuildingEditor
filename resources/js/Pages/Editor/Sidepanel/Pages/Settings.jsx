@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-export default function Settings({ gridSize, setGridSize, units, setUnits, pxPerMeter, setPxPerMeter }) {
+export default function Settings({ gridSize, setGridSize, pxPerMeter, setPxPerMeter }) {
   return (
     <motion.div
       className="p-4 bg-[#1e293b] border border-[#334155] shadow-md"
@@ -21,18 +21,7 @@ export default function Settings({ gridSize, setGridSize, units, setUnits, pxPer
           className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
         />
       </div>
-      <div className="mb-4">
-        <label className="block text-sm mb-2 text-[#f3f4f6]">Units</label>
-        <select
-          value={units}
-          onChange={(e) => setUnits(e.target.value)}
-          className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
-        >
-          <option>Metric</option>
-          <option>Imperial</option>
-        </select>
-      </div>
-      <div className="mb-4">
+      {/* <div className="mb-4">
         <label className="block text-sm mb-2 text-[#f3f4f6]">Pixels per Meter</label>
         <input
           type="number"
@@ -40,7 +29,7 @@ export default function Settings({ gridSize, setGridSize, units, setUnits, pxPer
           onChange={(e) => setPxPerMeter(parseInt(e.target.value, 10))}
           className="w-full p-2 bg-[#071826] text-[#f3f4f6] border border-[#334155] focus:ring-2 focus:ring-[#06b6d4]"
         />
-      </div>
+      </div> */}
     </motion.div>
   );
 }

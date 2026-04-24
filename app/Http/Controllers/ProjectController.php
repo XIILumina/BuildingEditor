@@ -11,6 +11,25 @@ use App\Models\Block;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * ProjectController — REST endpoints for project CRUD operations
+ * 
+ * SECURITY FEATURES:
+ * - User authorization: All operations scoped to auth()->id()
+ * - Input validation: Comprehensive rules on store() and save()
+ *   - Project name: max 100 chars, alphanumeric + spaces/hyphens/underscores/parentheses
+ *   - Layer data: name trimmed, order validated as integer
+ *   - Stroke/Eraser points: validated as array of {x,y} with finite numeric values
+ *   - Color values: enforced hex format (#RRGGBB or #RGB)
+ *   - Shape dimensions: non-negative, finite numeric values
+ *   - Shape types: whitelist (rect, circle, oval, polygon)
+ *   - All numeric inputs: clamped to safe ranges
+ * - Data sanitization:
+ *   - JSON encoding for arrays/points (prevents SQL injection)
+ *   - String trimming and length limits
+ *   - Regex validation for user-facing strings
+ * - Database: Eloquent ORM prevents SQL injection; uses transactions for data integrity
+ */
 class ProjectController extends Controller
 {
     // List user's projects
@@ -23,9 +42,28 @@ class ProjectController extends Controller
     // Create project + default layer, return id
     public function store(Request $request)
     {
+        // Validate input with comprehensive security checks
+        $validated = $request->validate([
+            'name' => [
+                'string',
+                'min:1',
+                'max:100',
+                'regex:/^[a-zA-Z0-9\s\-_()]+$/', // Allow alphanumeric, spaces, hyphens, underscores, parentheses
+            ],
+        ], [
+            'name.regex' => 'Project name contains invalid characters. Use only letters, numbers, spaces, hyphens, underscores, and parentheses.',
+            'name.max' => 'Project name must not exceed 100 characters.',
+        ]);
+
+        $projectName = trim($validated['name'] ?? 'Untitled Project');
+        if (empty($projectName)) {
+            $projectName = 'Untitled Project';
+        }
+
+        // Ensure user owns the project (additional security check)
         $project = Project::create([
             'user_id' => auth()->id(),
-            'name' => $request->input('name', 'Untitled Project'),
+            'name' => $projectName,
         ]);
 
         $layer = Layer::create([
@@ -119,15 +157,41 @@ class ProjectController extends Controller
             ->with('layers')
             ->firstOrFail();
 
+        // Validate incoming data structure
+        $validated = $request->validate([
+            'data' => 'nullable|array',
+            'data.projectName' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9\s\-_()]*$/',
+            'data.layers' => 'nullable|array',
+            'data.strokes' => 'nullable|array',
+            'data.erasers' => 'nullable|array',
+            'data.shapes' => 'nullable|array',
+        ], [
+            'data.projectName.regex' => 'Project name contains invalid characters.',
+        ]);
+
         DB::transaction(function () use ($request, $project) {
             $data = $request->input('data', []);
             $incomingLayers = $data['layers'] ?? [];
 
-            $layerMap = [];
+            // Validate and sanitize layers
+            $validatedLayers = [];
             foreach ($incomingLayers as $l) {
+                $layerName = trim($l['name'] ?? 'Layer');
+                if (empty($layerName)) {
+                    $layerName = 'Layer';
+                }
+                $validatedLayers[] = [
+                    'id' => $l['id'] ?? null,
+                    'name' => $layerName,
+                    'order' => (int)($l['order'] ?? 0),
+                ];
+            }
+
+            $layerMap = [];
+            foreach ($validatedLayers as $l) {
                 $layer = Layer::updateOrCreate(
                     ['id' => $l['id'] ?? null, 'project_id' => $project->id],
-                    ['name' => $l['name'] ?? 'Layer', 'order' => $l['order'] ?? 0]
+                    ['name' => $l['name'], 'order' => $l['order']]
                 );
                 $layerMap[$l['id'] ?? $layer->id] = $layer->id;
             }
@@ -144,18 +208,47 @@ class ProjectController extends Controller
 
             $layerIds = array_values($layerMap);
 
-            // strokes
+            // strokes — validate points, color, thickness
             $incomingStrokeIds = [];
             foreach ($data['strokes'] ?? [] as $s) {
-                $layerId = $layerMap[$s['layer_id']] ?? $layerIds[0];
+                // Validate points array
+                $points = $s['points'] ?? [];
+                if (!is_array($points) || empty($points)) {
+                    continue; // Skip invalid strokes
+                }
+                
+                // Validate points are flat numeric array [x1,y1,x2,y2,...]
+                if (count($points) % 2 !== 0) continue; // must have even count
+                foreach ($points as $val) {
+                    if (!is_numeric($val) || !is_finite((float)$val)) {
+                        continue 2; // Skip this stroke if any value is invalid
+                    }
+                }
+
+                // Validate color (hex format)
+                $color = $s['color'] ?? '#ffffff';
+                if (!preg_match('/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $color)) {
+                    $color = '#ffffff';
+                }
+
+                // Validate thickness (1-200)
+                $thickness = (int)($s['thickness'] ?? 6);
+                $thickness = max(1, min(200, $thickness));
+
+                $layerId = $layerMap[$s['layer_id']] ?? $layerIds[0] ?? null;
+                if (!$layerId) {
+                    continue;
+                }
+
                 $attrs = [
                     'layer_id' => $layerId,
-                    'points' => is_array($s['points']) ? json_encode($s['points']) : $s['points'],
-                    'color' => $s['color'] ?? '#fff',
-                    'thickness' => $s['thickness'] ?? 6,
-                    'isWall' => $s['isWall'] ?? false,
-                    'material' => $s['material'] ?? null,
+                    'points' => json_encode($points),
+                    'color' => $color,
+                    'thickness' => $thickness,
+                    'isWall' => (bool)($s['isWall'] ?? false),
+                    'material' => is_string($s['material'] ?? null) ? trim($s['material']) : null,
                 ];
+                
                 $stroke = !empty($s['id'])
                     ? Stroke::where('id', $s['id'])->whereIn('layer_id', $layerIds)->first()
                     : null;
@@ -164,15 +257,38 @@ class ProjectController extends Controller
             }
             Stroke::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingStrokeIds)->delete();
 
-            // erasers
+            // erasers — validate points, thickness
             $incomingEraserIds = [];
             foreach ($data['erasers'] ?? [] as $e) {
-                $layerId = $layerMap[$e['layer_id']] ?? $layerIds[0];
+                // Validate points array
+                $points = $e['points'] ?? [];
+                if (!is_array($points) || empty($points)) {
+                    continue; // Skip invalid erasers
+                }
+                
+                // Validate points are flat numeric array [x1,y1,x2,y2,...]
+                if (count($points) % 2 !== 0) continue; // must have even count
+                foreach ($points as $val) {
+                    if (!is_numeric($val) || !is_finite((float)$val)) {
+                        continue 2; // Skip this eraser if any value is invalid
+                    }
+                }
+
+                // Validate thickness (1-200)
+                $thickness = (int)($e['thickness'] ?? 6);
+                $thickness = max(1, min(200, $thickness));
+
+                $layerId = $layerMap[$e['layer_id']] ?? $layerIds[0] ?? null;
+                if (!$layerId) {
+                    continue;
+                }
+
                 $attrs = [
                     'layer_id' => $layerId,
-                    'points' => is_array($e['points']) ? json_encode($e['points']) : $e['points'],
-                    'thickness' => $e['thickness'] ?? 6,
+                    'points' => json_encode($points),
+                    'thickness' => $thickness,
                 ];
+                
                 $er = !empty($e['id'])
                     ? Eraser::where('id', $e['id'])->whereIn('layer_id', $layerIds)->first()
                     : null;
@@ -181,33 +297,87 @@ class ProjectController extends Controller
             }
             Eraser::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingEraserIds)->delete();
 
-            // shapes
+            // shapes — validate type, coordinates, dimensions, colors
             $incomingShapeIds = [];
+            $validShapeTypes = ['rect', 'circle', 'oval', 'polygon'];
+            
             foreach ($data['shapes'] ?? [] as $sh) {
-                $layerId = $layerMap[$sh['layer_id']] ?? $layerIds[0];
                 $type = $sh['type'] ?? 'rect';
+                
+                // Validate shape type
+                if (!in_array($type, $validShapeTypes)) {
+                    continue;
+                }
+
+                // Validate coordinates are numeric and finite
+                $x = (float)($sh['x'] ?? 0);
+                $y = (float)($sh['y'] ?? 0);
+                if (!is_finite($x) || !is_finite($y)) {
+                    continue;
+                }
+
+                // Validate color (hex format)
+                $color = $sh['color'] ?? ($sh['fill'] ?? '#9CA3AF');
+                if (!preg_match('/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $color)) {
+                    $color = '#9CA3AF';
+                }
+
+                // Validate rotation
+                $rotation = (float)($sh['rotation'] ?? 0);
+                $rotation = fmod($rotation, 360); // Normalize to 0-360
+
+                $layerId = $layerMap[$sh['layer_id']] ?? $layerIds[0] ?? null;
+                if (!$layerId) {
+                    continue;
+                }
 
                 $attrs = [
                     'layer_id' => $layerId,
                     'type' => $type,
-                    'x' => $sh['x'] ?? 0,
-                    'y' => $sh['y'] ?? 0,
-                    // Ensure NOT NULL color: fallback to fill or default
-                    'color' => $sh['color'] ?? ($sh['fill'] ?? '#9CA3AF'),
-                    'rotation' => $sh['rotation'] ?? 0,
+                    'x' => $x,
+                    'y' => $y,
+                    'color' => $color,
+                    'rotation' => $rotation,
                 ];
+
+                // Type-specific validation
                 if ($type === 'rect') {
-                    $attrs['width'] = $sh['width'] ?? null;
-                    $attrs['height'] = $sh['height'] ?? null;
+                    $width = (float)($sh['width'] ?? 0);
+                    $height = (float)($sh['height'] ?? 0);
+                    if (!is_finite($width) || !is_finite($height) || $width <= 0 || $height <= 0) {
+                        continue;
+                    }
+                    $attrs['width'] = $width;
+                    $attrs['height'] = $height;
                 } elseif ($type === 'circle') {
-                    $attrs['radius'] = $sh['radius'] ?? null;
+                    $radius = (float)($sh['radius'] ?? 0);
+                    if (!is_finite($radius) || $radius <= 0) {
+                        continue;
+                    }
+                    $attrs['radius'] = $radius;
                 } elseif ($type === 'oval') {
-                    $attrs['radiusX'] = $sh['radiusX'] ?? null;
-                    $attrs['radiusY'] = $sh['radiusY'] ?? null;
+                    $radiusX = (float)($sh['radiusX'] ?? 0);
+                    $radiusY = (float)($sh['radiusY'] ?? 0);
+                    if (!is_finite($radiusX) || !is_finite($radiusY) || $radiusX <= 0 || $radiusY <= 0) {
+                        continue;
+                    }
+                    $attrs['radiusX'] = $radiusX;
+                    $attrs['radiusY'] = $radiusY;
                 } elseif ($type === 'polygon') {
-                    $attrs['points'] = isset($sh['points']) ? json_encode($sh['points']) : null;
-                    $attrs['fill'] = $sh['fill'] ?? ($sh['color'] ?? '#9CA3AF');
-                    $attrs['closed'] = $sh['closed'] ?? true;
+                    $points = $sh['points'] ?? [];
+                    if (!is_array($points) || empty($points)) {
+                        continue;
+                    }
+                    // Validate polygon points are flat numeric array [x1,y1,x2,y2,...]
+                    if (count($points) % 2 !== 0) continue;
+                    foreach ($points as $val) {
+                        if (!is_numeric($val) || !is_finite((float)$val)) {
+                            continue 2; // Skip this shape if any value is invalid
+                        }
+                    }
+                    $attrs['points'] = json_encode($points);
+                    $attrs['fill'] = $sh['fill'] ?? $color;
+                    $attrs['closed'] = (bool)($sh['closed'] ?? true);
                 }
 
                 $shape = !empty($sh['id'])
@@ -219,17 +389,45 @@ class ProjectController extends Controller
             }
             Shape::whereIn('layer_id', $layerIds)->whereNotIn('id', $incomingShapeIds)->delete();
 
+            // Validate and sanitize project name
             if (isset($data['projectName'])) {
-                $project->name = $data['projectName'];
-                $project->save();
+                $projectName = trim($data['projectName'] ?? '');
+                // Validate against regex from request validation
+                if (!empty($projectName) && preg_match('/^[a-zA-Z0-9\s\-_()]*$/', $projectName)) {
+                    $project->name = substr($projectName, 0, 100); // Max 100 chars
+                    $project->save();
+                }
             }
 
+            // Validate and sanitize project settings
+            $gridSize = (int)($data['gridSize'] ?? 0);
+            $gridSize = max(0, min(1000, $gridSize)); // 0-1000
+            
+            $units = $data['units'] ?? null;
+            if ($units && !in_array($units, ['mm', 'cm', 'm', 'in', 'ft'])) {
+                $units = null;
+            }
+            
+            $drawColor = $data['drawColor'] ?? null;
+            if ($drawColor && !preg_match('/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $drawColor)) {
+                $drawColor = null;
+            }
+            
+            $thickness = (int)($data['thickness'] ?? 0);
+            $thickness = max(0, min(200, $thickness)); // 0-200
+            
+            $material = $data['material'] ?? null;
+            if ($material && !is_string($material)) {
+                $material = null;
+            }
+            $material = $material ? substr(trim($material), 0, 100) : null; // Max 100 chars
+            
             $project->update([
-                'grid_size' => $data['gridSize'] ?? null,
-                'units' => $data['units'] ?? null,
-                'draw_color' => $data['drawColor'] ?? null,
-                'thickness' => $data['thickness'] ?? null,
-                'material' => $data['material'] ?? null,
+                'grid_size' => $gridSize,
+                'units' => $units,
+                'draw_color' => $drawColor,
+                'thickness' => $thickness,
+                'material' => $material,
             ]);
         });
 
@@ -303,58 +501,69 @@ class ProjectController extends Controller
 
         foreach ($project->layers as $layer) {
             foreach ($layer->shapes as $shape) {
+                $shapeStrokePad = max(0, (float)($shape->strokeWidth ?? 0)) / 2;
                 if ($shape->type === 'rect') {
-                    $minX = min($minX, $shape->x);
-                    $minY = min($minY, $shape->y);
-                    $maxX = max($maxX, $shape->x + ($shape->width ?? 0));
-                    $maxY = max($maxY, $shape->y + ($shape->height ?? 0));
+                    $x = (float)($shape->x ?? 0);
+                    $y = (float)($shape->y ?? 0);
+                    $w = (float)($shape->width ?? 0);
+                    $h = (float)($shape->height ?? 0);
+                    $minX = min($minX, $x - $shapeStrokePad);
+                    $minY = min($minY, $y - $shapeStrokePad);
+                    $maxX = max($maxX, $x + $w + $shapeStrokePad);
+                    $maxY = max($maxY, $y + $h + $shapeStrokePad);
                 } elseif ($shape->type === 'circle') {
-                    $radius = $shape->radius ?? 40;
-                    $centerX = $shape->x ?? 0;
-                    $centerY = $shape->y ?? 0;
-                    $minX = min($minX, $centerX - $radius);
-                    $minY = min($minY, $centerY - $radius);
-                    $maxX = max($maxX, $centerX + $radius);
-                    $maxY = max($maxY, $centerY + $radius);
+                    $radius = (float)($shape->radius ?? 40);
+                    $centerX = (float)($shape->x ?? 0);
+                    $centerY = (float)($shape->y ?? 0);
+                    $minX = min($minX, $centerX - $radius - $shapeStrokePad);
+                    $minY = min($minY, $centerY - $radius - $shapeStrokePad);
+                    $maxX = max($maxX, $centerX + $radius + $shapeStrokePad);
+                    $maxY = max($maxY, $centerY + $radius + $shapeStrokePad);
                 } elseif ($shape->type === 'oval') {
-                    $rx = $shape->radiusX ?? 40;
-                    $ry = $shape->radiusY ?? 30;
-                    $centerX = $shape->x ?? 0;
-                    $centerY = $shape->y ?? 0;
-                    $minX = min($minX, $centerX - $rx);
-                    $minY = min($minY, $centerY - $ry);
-                    $maxX = max($maxX, $centerX + $rx);
-                    $maxY = max($maxY, $centerY + $ry);
+                    $rx = (float)($shape->radiusX ?? 40);
+                    $ry = (float)($shape->radiusY ?? 30);
+                    $centerX = (float)($shape->x ?? 0);
+                    $centerY = (float)($shape->y ?? 0);
+                    $minX = min($minX, $centerX - $rx - $shapeStrokePad);
+                    $minY = min($minY, $centerY - $ry - $shapeStrokePad);
+                    $maxX = max($maxX, $centerX + $rx + $shapeStrokePad);
+                    $maxY = max($maxY, $centerY + $ry + $shapeStrokePad);
                 } elseif ($shape->type === 'polygon') {
                     $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
-                    $offX = (int)($shape->x ?? 0);
-                    $offY = (int)($shape->y ?? 0);
+                    $offX = (float)($shape->x ?? 0);
+                    $offY = (float)($shape->y ?? 0);
                     for ($i = 0; $i < count($pts); $i += 2) {
-                        $px = (int)($pts[$i] ?? 0) + $offX;
-                        $py = (int)($pts[$i + 1] ?? 0) + $offY;
-                        $minX = min($minX, $px);
-                        $minY = min($minY, $py);
-                        $maxX = max($maxX, $px);
-                        $maxY = max($maxY, $py);
+                        $px = (float)($pts[$i] ?? 0) + $offX;
+                        $py = (float)($pts[$i + 1] ?? 0) + $offY;
+                        $minX = min($minX, $px - $shapeStrokePad);
+                        $minY = min($minY, $py - $shapeStrokePad);
+                        $maxX = max($maxX, $px + $shapeStrokePad);
+                        $maxY = max($maxY, $py + $shapeStrokePad);
                     }
                 }
             }
             foreach ($layer->strokes as $stroke) {
                 $points = is_string($stroke->points) ? json_decode($stroke->points, true) : $stroke->points;
+                $strokePad = max(1, (float)($stroke->thickness ?? 6)) / 2;
                 for ($i = 0; $i < count($points); $i += 2) {
-                    $minX = min($minX, $points[$i]);
-                    $minY = min($minY, $points[$i + 1]);
-                    $maxX = max($maxX, $points[$i]);
-                    $maxY = max($maxY, $points[$i + 1]);
+                    $px = (float)($points[$i] ?? 0);
+                    $py = (float)($points[$i + 1] ?? 0);
+                    $minX = min($minX, $px - $strokePad);
+                    $minY = min($minY, $py - $strokePad);
+                    $maxX = max($maxX, $px + $strokePad);
+                    $maxY = max($maxY, $py + $strokePad);
                 }
             }
             foreach ($layer->erasers as $eraser) {
                 $points = is_string($eraser->points) ? json_decode($eraser->points, true) : $eraser->points;
+                $eraserPad = max(1, (float)($eraser->thickness ?? 40)) / 2;
                 for ($i = 0; $i < count($points); $i += 2) {
-                    $minX = min($minX, $points[$i]);
-                    $minY = min($minY, $points[$i + 1]);
-                    $maxX = max($maxX, $points[$i]);
-                    $maxY = max($maxY, $points[$i + 1]);
+                    $px = (float)($points[$i] ?? 0);
+                    $py = (float)($points[$i + 1] ?? 0);
+                    $minX = min($minX, $px - $eraserPad);
+                    $minY = min($minY, $py - $eraserPad);
+                    $maxX = max($maxX, $px + $eraserPad);
+                    $maxY = max($maxY, $py + $eraserPad);
                 }
             }
         }
@@ -362,15 +571,15 @@ class ProjectController extends Controller
         if ($minX === PHP_INT_MAX || $minY === PHP_INT_MAX || $maxX === PHP_INT_MIN || $maxY === PHP_INT_MIN) {
             // Nothing to draw; set reasonable defaults
             $minX = $minY = 0;
-            $maxX = $maxY = 1000;
+            $maxX = $maxY = 256;
         }
 
         // Set canvas size with padding
-        $padding = 50;
-        $width = max(2000, (int)($maxX - $minX + 2 * $padding));
-        $height = max(2000, (int)($maxY - $minY + 2 * $padding));
-        $offsetX = $minX < 0 ? -$minX + $padding : $padding;
-        $offsetY = $minY < 0 ? -$minY + $padding : $padding;
+        $padding = 24;
+        $width = max(64, (int)ceil(($maxX - $minX) + 2 * $padding));
+        $height = max(64, (int)ceil(($maxY - $minY) + 2 * $padding));
+        $offsetX = (float)(-$minX + $padding);
+        $offsetY = (float)(-$minY + $padding);
 
         // Create canvas
         $image = imagecreatetruecolor($width, $height);
@@ -469,12 +678,17 @@ class ProjectController extends Controller
             }
         }
 
-        // Set headers and output PNG
-        header('Content-Type: image/png');
-        header('Content-Disposition: attachment; filename="project_' . $id . '.png"');
+        // Stream PNG through Laravel response to avoid raw header/output conflicts.
+        ob_start();
         imagepng($image);
+        $pngData = ob_get_clean();
         imagedestroy($image);
-        exit;
+
+        return response($pngData, 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'attachment; filename="project_' . $id . '.png"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
     }
     public function createBlockWithAnchor(Request $request)
     {

@@ -74,7 +74,7 @@ export default function Properties({
     if (obj.type === 'rect') return obj.width || '';
     if (obj.type === 'circle') return (obj.radius || 0) * 2;
     if (obj.type === 'oval') return (obj.radiusX || 0) * 2;
-    if (obj.isWall && obj.points && obj.points.length === 4) {
+    if (obj.points && obj.points.length === 4) {
       const [x1, y1, x2, y2] = obj.points;
       return Math.hypot(x2 - x1, y2 - y1);
     }
@@ -137,16 +137,14 @@ export default function Properties({
       const r = obj.radius || 0;
       return { x: (obj.x || 0) - r, y: (obj.y || 0) - r, width: 2 * r, height: 2 * r };
     }
-    if (obj.type === 'line' || obj.isWall) {
-      if (obj.points && obj.points.length === 4) {
-        const [x1, y1, x2, y2] = obj.points;
-        return {
-          x: Math.min(x1, x2),
-          y: Math.min(y1, y2),
-          width: Math.hypot(x2 - x1, y2 - y1),
-          height: obj.thickness || thickness || 0, // Assuming height as thickness for lines
-        };
-      }
+    if ((obj.type === 'line' || obj.points) && obj.points && obj.points.length === 4) {
+      const [x1, y1, x2, y2] = obj.points;
+      return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.hypot(x2 - x1, y2 - y1),
+        height: obj.thickness || thickness || 0, // Assuming height as thickness for lines
+      };
     }
     if (obj.type === 'polygon' || obj.type === 'triangle') {
       const pts = obj.points || [];

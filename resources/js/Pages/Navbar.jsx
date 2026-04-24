@@ -1,4 +1,4 @@
-import { Link, Inertia } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 
 function Navbar({ auth }) {
   return (
@@ -11,7 +11,7 @@ function Navbar({ auth }) {
             <Link href="/dashboard" className="hover:text-blue-300">Dashboard</Link>
             <Link href="/profile" className="hover:text-blue-300">Profile</Link>
             <button
-              onClick={() => Inertia.post('/logout')}
+              onClick={() => router.post('/logout')}
               className="bg-red-600 px-3 py-1 rounded hover:bg-red-700"
             >
               Logout

@@ -3,7 +3,6 @@ import { usePage, Link as InertiaLink } from "@inertiajs/react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import Template from "./Template";
-import { makeAnchorBlock, detectRooms } from "./utils/drawingUtils";
 import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
@@ -11,14 +10,30 @@ import TextInput from '@/Components/TextInput';
 
 let aiRequestInProgress = false;
 
+const getCsrfToken = () => {
+  return document.head.querySelector('meta[name="csrf-token"]')?.content || null;
+};
+
 const askAI = async (prompt) => {
   if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
   aiRequestInProgress = true;
   try {
-    const res = await axios.post('/openai/chat', { prompt });
+    const csrf = getCsrfToken();
+    const res = await axios.post('/openai/chat',
+      {
+        prompt,
+        ...(csrf ? { _token: csrf } : {}),
+      },
+      {
+        headers: csrf ? { 'X-CSRF-TOKEN': csrf } : undefined,
+      }
+    );
     return { success: true, data: res.data.reply };
   } catch (err) {
     console.error("OpenAI error:", err);
+    if (err?.response?.status === 419) {
+      return { success: false, data: "Session expired or CSRF token mismatch (419). Refresh the page and try again." };
+    }
     return { success: false, data: "AI request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
@@ -29,13 +44,23 @@ const askAIDraw = async (prompt, projectData) => {
   if (aiRequestInProgress) return { success: false, data: "Request already in progress" };
   aiRequestInProgress = true;
   try {
-    const res = await axios.post('/openai/aidrawsuggestion', {
-      prompt,
-      projectData: JSON.stringify(projectData),
-    });
+    const csrf = getCsrfToken();
+    const res = await axios.post('/openai/aidrawsuggestion',
+      {
+        prompt,
+        projectData: JSON.stringify(projectData),
+        ...(csrf ? { _token: csrf } : {}),
+      },
+      {
+        headers: csrf ? { 'X-CSRF-TOKEN': csrf } : undefined,
+      }
+    );
     return res.data;
   } catch (err) {
     console.error("OpenAI draw error:", err);
+    if (err?.response?.status === 419) {
+      return { success: false, data: "Session expired or CSRF token mismatch (419). Refresh the page and try again." };
+    }
     return { success: false, data: "AI draw request failed: " + err.message };
   } finally {
     aiRequestInProgress = false;
@@ -47,18 +72,6 @@ const roundTo = (n, step = 0.1) => {
   const x = Number(n);
   if (!Number.isFinite(x)) return n;
   return Math.round(x / step) * step;
-};
-
-// Deeply round all numeric values; integers remain integers
-const deepRound = (val, step = 0.1) => {
-  if (Array.isArray(val)) return val.map((v) => deepRound(v, step));
-  if (val && typeof val === "object") {
-    const out = {};
-    for (const k in val) out[k] = deepRound(val[k], step);
-    return out;
-  }
-  if (typeof val === "number") return roundTo(val, step);
-  return val;
 };
 
 // Create a compact version of project data for AI (reduces token size)
@@ -141,24 +154,31 @@ export default function Editor({ projectId }) {
     setSaveState('unsaved');
   }, [snapshot]);
 
-  // Example: In Editor.jsx or Template.jsx
-const handleCreateAnchorBlock = () => {
-  // Get selected objects (shapes and strokes)
+const handleAnchorSelected = () => {
+  if (!selectedId) return;
   const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
-  const selectedObjects = [
-    ...strokes.filter(s => ids.includes(s.id)),
-    ...shapes.filter(sh => ids.includes(sh.id))
-  ];
-  if (selectedObjects.length === 0) return;
+  const blockId = Date.now();
+  
+  pushHistory("anchor-selected");
+  setStrokes((prev) =>
+    prev.map((s) => ids.includes(s.id) ? { ...s, anchoredBlockId: blockId } : s)
+  );
+  setShapes((prev) =>
+    prev.map((sh) => ids.includes(sh.id) ? { ...sh, anchoredBlockId: blockId } : sh)
+  );
+};
 
-  const blockData = makeAnchorBlock(selectedObjects);
-  // Round everything to 0.1 before sending to BE
-  const rounded = deepRound({ layer_id: activeLayerId, ...blockData }, 0.1);
-
-  axios.post('/editor/anchor-block/store', rounded).then(res => {
-    // Optionally update frontend state with new block
-    // ...
-  });
+const handleUnanchorSelected = () => {
+  if (!selectedId) return;
+  const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
+  
+  pushHistory("unanchor-selected");
+  setStrokes((prev) =>
+    prev.map((s) => ids.includes(s.id) ? { ...s, anchoredBlockId: undefined } : s)
+  );
+  setShapes((prev) =>
+    prev.map((sh) => ids.includes(sh.id) ? { ...sh, anchoredBlockId: undefined } : sh)
+  );
 };
 
 const confirmPreview = useCallback(() => {
@@ -170,8 +190,7 @@ const confirmPreview = useCallback(() => {
         stroke &&
         Array.isArray(stroke.points) &&
         typeof stroke.color === "string" &&
-        typeof stroke.thickness === "number" &&
-        typeof stroke.isWall === "boolean";
+        typeof stroke.thickness === "number";
       return isValid;
     })
     .map((stroke) => ({
@@ -393,7 +412,7 @@ const selectedObject = useMemo(() => {
           return newS;
         }
 
-        if (property === 'length' && s.isWall && s.points.length === 4) {
+        if (property === 'length' && s.points.length === 4) {
           const [x1, y1, x2, y2] = s.points;
           const dx = x2 - x1;
           const dy = y2 - y1;
@@ -653,18 +672,18 @@ const selectedObject = useMemo(() => {
     setShapes((s) => [...s, base]);
   }, [pushHistory, activeLayerId]);
 
-  const onStrokesChange = (newStrokes) => {
+  const onStrokesChange = useCallback((newStrokes) => {
     pushHistory("strokes-change");
     setStrokes(newStrokes);
-  };
-  const onErasersChange = (newErasers) => {
+  }, [pushHistory]);
+  const onErasersChange = useCallback((newErasers) => {
     pushHistory("erasers-change");
     setErasers(newErasers);
-  };
-  const onShapesChange = (newShapes) => {
+  }, [pushHistory]);
+  const onShapesChange = useCallback((newShapes) => {
     pushHistory("shapes-change");
     setShapes(newShapes);
-  };
+  }, [pushHistory]);
 
   const handleProjectNameChange = (e) => {
     setProjectName(e.target.value);
@@ -1102,8 +1121,6 @@ useEffect(() => {
             setMaterial={setMaterial}
             gridSize={gridSize}
             setGridSize={setGridSize}
-            units={units}
-            setUnits={setUnits}
             drawColor={drawColor}
             setDrawColor={setDrawColor}
             addShape={addShape}
@@ -1119,11 +1136,12 @@ useEffect(() => {
             handleAIPromptSubmit={handleAIPromptSubmit}
             chatContainerRef={chatContainerRef}
             clearAiMessages={clearAiMessages}
-            makeAnchorBlock={handleCreateAnchorBlock}
             mergeSelected={mergeSelected}
             pxPerMeter={pxPerMeter}
             setPxPerMeter={setPxPerMeter}
             aiBusy={aiBusy}
+            handleAnchorSelected={handleAnchorSelected}
+            handleUnanchorSelected={handleUnanchorSelected}
           />
         </motion.div>
       </div>
