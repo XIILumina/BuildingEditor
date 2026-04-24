@@ -39,7 +39,7 @@ export default function ShapeRenderer({
   const id = (inactive || preview) ? undefined : (nodeId || sh.id.toString());
 
   const events = listening ? {
-    onClick: (e) => (!sh.locked && !sh.anchoredBlockId) && onSelect?.(sh.id, e),
+    onClick: (e) => !sh.locked && onSelect?.(sh.id, e),
     onDragStart,
     onDragMove,
     onDragEnd,

@@ -3,7 +3,6 @@ import { usePage, Link as InertiaLink } from "@inertiajs/react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import Template from "./Template";
-import { makeAnchorBlock, detectRooms } from "./utils/drawingUtils";
 import Toolbar from "./Toolbar";
 import FileMenu from "./FileMenu";
 import Sidepanel from "./Sidepanel/Sidepanel";
@@ -73,18 +72,6 @@ const roundTo = (n, step = 0.1) => {
   const x = Number(n);
   if (!Number.isFinite(x)) return n;
   return Math.round(x / step) * step;
-};
-
-// Deeply round all numeric values; integers remain integers
-const deepRound = (val, step = 0.1) => {
-  if (Array.isArray(val)) return val.map((v) => deepRound(v, step));
-  if (val && typeof val === "object") {
-    const out = {};
-    for (const k in val) out[k] = deepRound(val[k], step);
-    return out;
-  }
-  if (typeof val === "number") return roundTo(val, step);
-  return val;
 };
 
 // Create a compact version of project data for AI (reduces token size)
@@ -166,26 +153,6 @@ export default function Editor({ projectId }) {
     setRedoStack([]);
     setSaveState('unsaved');
   }, [snapshot]);
-
-  // Example: In Editor.jsx or Template.jsx
-const handleCreateAnchorBlock = () => {
-  // Get selected objects (shapes and strokes)
-  const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
-  const selectedObjects = [
-    ...strokes.filter(s => ids.includes(s.id)),
-    ...shapes.filter(sh => ids.includes(sh.id))
-  ];
-  if (selectedObjects.length === 0) return;
-
-  const blockData = makeAnchorBlock(selectedObjects);
-  // Round everything to 0.1 before sending to BE
-  const rounded = deepRound({ layer_id: activeLayerId, ...blockData }, 0.1);
-
-  axios.post('/editor/anchor-block/store', rounded).then(res => {
-    // Optionally update frontend state with new block
-    // ...
-  });
-};
 
 const handleAnchorSelected = () => {
   if (!selectedId) return;
@@ -1154,8 +1121,6 @@ useEffect(() => {
             setMaterial={setMaterial}
             gridSize={gridSize}
             setGridSize={setGridSize}
-            units={units}
-            setUnits={setUnits}
             drawColor={drawColor}
             setDrawColor={setDrawColor}
             addShape={addShape}
@@ -1171,7 +1136,6 @@ useEffect(() => {
             handleAIPromptSubmit={handleAIPromptSubmit}
             chatContainerRef={chatContainerRef}
             clearAiMessages={clearAiMessages}
-            makeAnchorBlock={handleCreateAnchorBlock}
             mergeSelected={mergeSelected}
             pxPerMeter={pxPerMeter}
             setPxPerMeter={setPxPerMeter}

@@ -667,12 +667,17 @@ class ProjectController extends Controller
             }
         }
 
-        // Set headers and output PNG
-        header('Content-Type: image/png');
-        header('Content-Disposition: attachment; filename="project_' . $id . '.png"');
+        // Stream PNG through Laravel response to avoid raw header/output conflicts.
+        ob_start();
         imagepng($image);
+        $pngData = ob_get_clean();
         imagedestroy($image);
-        exit;
+
+        return response($pngData, 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'attachment; filename="project_' . $id . '.png"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
     }
     public function createBlockWithAnchor(Request $request)
     {

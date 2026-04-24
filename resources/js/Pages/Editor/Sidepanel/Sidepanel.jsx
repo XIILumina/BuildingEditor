@@ -9,7 +9,6 @@ import Settings from './Pages/Settings'; // Adjust path as needed
 import Shapes from './Pages/Shapes'; // Adjust path as needed
 
 export default function Sidepanel({
-  makeAnchorBlock,
   handleAnchorSelected,
   handleUnanchorSelected,
   sidepanelMode,
@@ -20,8 +19,6 @@ export default function Sidepanel({
   setMaterial,
   gridSize,
   setGridSize,
-  units,
-  setUnits,
   addShape,
   selectedObject,
   updateSelectedProperty,
@@ -89,8 +86,6 @@ export default function Sidepanel({
             <Settings 
               gridSize={gridSize} 
               setGridSize={setGridSize} 
-              units={units} 
-              setUnits={setUnits} 
               pxPerMeter={pxPerMeter}
               setPxPerMeter={setPxPerMeter}
             />

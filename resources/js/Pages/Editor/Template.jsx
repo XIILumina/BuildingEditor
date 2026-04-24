@@ -432,7 +432,7 @@ export default function Template({
         </Layer>
         <Layer ref={activeLayerRef}>
           {strokes.filter(s => isSameLayer(s.layer_id)).map(s => (
-            <Line key={`stroke-${s.id}`} id={strokeNodeId(s.id)} x={num(s.x)} y={num(s.y)} points={s.points.map(p => num(p))} stroke={s.color} strokeWidth={num(s.thickness, 1)} lineCap="round" lineJoin="round" tension={0.5} draggable={tool === "select" && !s.locked && !s.anchoredBlockId} onClick={e => (!s.locked && !s.anchoredBlockId) && handleSelectObject(s.id, e)} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} />
+            <Line key={`stroke-${s.id}`} id={strokeNodeId(s.id)} x={num(s.x)} y={num(s.y)} points={s.points.map(p => num(p))} stroke={s.color} strokeWidth={num(s.thickness, 1)} lineCap="round" lineJoin="round" tension={0.5} draggable={tool === "select" && !s.locked && !s.anchoredBlockId} onClick={e => !s.locked && handleSelectObject(s.id, e)} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} />
           ))}
           {shapes.filter(sh => isSameLayer(sh.layer_id)).map(sh => (
             <ShapeRenderer key={`shape-${sh.id}`} nodeId={shapeNodeId(sh.id)} sh={sh} tool={tool} inactiveLayerOpacity={inactiveLayerOpacity} {...shapeEvents} />
