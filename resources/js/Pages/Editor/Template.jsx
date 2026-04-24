@@ -396,13 +396,15 @@ export default function Template({
   };
 
   const shapeEvents = { onSelect: handleSelectObject, onDragStart: handleDragStart, onDragMove: handleDragMove, onDragEnd: handleDragEnd };
+  const stageWidth = window.innerWidth - 320;
+  const stageHeight = window.innerHeight - 56 - 48;
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <Stage
         ref={stageRef}
-        width={window.innerWidth - 320}
-        height={window.innerHeight - 56 - 48}
+        width={stageWidth}
+        height={stageHeight}
         scaleX={camera.scale} scaleY={camera.scale}
         x={camera.x} y={camera.y}
         onMouseDown={handleMouseDown}
@@ -412,7 +414,7 @@ export default function Template({
         style={{ background: "#0f1720" }}
         onContextMenu={e => e.evt.preventDefault()}
       >
-        <Layer listening={false}><GridLayer gridSize={gridSize} scale={camera.scale} /></Layer>
+        <Layer listening={false}><GridLayer gridSize={gridSize} scale={camera.scale} camera={camera} viewportWidth={stageWidth} viewportHeight={stageHeight} /></Layer>
         <Layer listening={false}>{renderGuides()}</Layer>
         <Layer listening={false}>
           {strokes.filter(s => !isSameLayer(s.layer_id)).map(s => (

@@ -501,58 +501,69 @@ class ProjectController extends Controller
 
         foreach ($project->layers as $layer) {
             foreach ($layer->shapes as $shape) {
+                $shapeStrokePad = max(0, (float)($shape->strokeWidth ?? 0)) / 2;
                 if ($shape->type === 'rect') {
-                    $minX = min($minX, $shape->x);
-                    $minY = min($minY, $shape->y);
-                    $maxX = max($maxX, $shape->x + ($shape->width ?? 0));
-                    $maxY = max($maxY, $shape->y + ($shape->height ?? 0));
+                    $x = (float)($shape->x ?? 0);
+                    $y = (float)($shape->y ?? 0);
+                    $w = (float)($shape->width ?? 0);
+                    $h = (float)($shape->height ?? 0);
+                    $minX = min($minX, $x - $shapeStrokePad);
+                    $minY = min($minY, $y - $shapeStrokePad);
+                    $maxX = max($maxX, $x + $w + $shapeStrokePad);
+                    $maxY = max($maxY, $y + $h + $shapeStrokePad);
                 } elseif ($shape->type === 'circle') {
-                    $radius = $shape->radius ?? 40;
-                    $centerX = $shape->x ?? 0;
-                    $centerY = $shape->y ?? 0;
-                    $minX = min($minX, $centerX - $radius);
-                    $minY = min($minY, $centerY - $radius);
-                    $maxX = max($maxX, $centerX + $radius);
-                    $maxY = max($maxY, $centerY + $radius);
+                    $radius = (float)($shape->radius ?? 40);
+                    $centerX = (float)($shape->x ?? 0);
+                    $centerY = (float)($shape->y ?? 0);
+                    $minX = min($minX, $centerX - $radius - $shapeStrokePad);
+                    $minY = min($minY, $centerY - $radius - $shapeStrokePad);
+                    $maxX = max($maxX, $centerX + $radius + $shapeStrokePad);
+                    $maxY = max($maxY, $centerY + $radius + $shapeStrokePad);
                 } elseif ($shape->type === 'oval') {
-                    $rx = $shape->radiusX ?? 40;
-                    $ry = $shape->radiusY ?? 30;
-                    $centerX = $shape->x ?? 0;
-                    $centerY = $shape->y ?? 0;
-                    $minX = min($minX, $centerX - $rx);
-                    $minY = min($minY, $centerY - $ry);
-                    $maxX = max($maxX, $centerX + $rx);
-                    $maxY = max($maxY, $centerY + $ry);
+                    $rx = (float)($shape->radiusX ?? 40);
+                    $ry = (float)($shape->radiusY ?? 30);
+                    $centerX = (float)($shape->x ?? 0);
+                    $centerY = (float)($shape->y ?? 0);
+                    $minX = min($minX, $centerX - $rx - $shapeStrokePad);
+                    $minY = min($minY, $centerY - $ry - $shapeStrokePad);
+                    $maxX = max($maxX, $centerX + $rx + $shapeStrokePad);
+                    $maxY = max($maxY, $centerY + $ry + $shapeStrokePad);
                 } elseif ($shape->type === 'polygon') {
                     $pts = is_string($shape->points) ? json_decode($shape->points, true) : ($shape->points ?? []);
-                    $offX = (int)($shape->x ?? 0);
-                    $offY = (int)($shape->y ?? 0);
+                    $offX = (float)($shape->x ?? 0);
+                    $offY = (float)($shape->y ?? 0);
                     for ($i = 0; $i < count($pts); $i += 2) {
-                        $px = (int)($pts[$i] ?? 0) + $offX;
-                        $py = (int)($pts[$i + 1] ?? 0) + $offY;
-                        $minX = min($minX, $px);
-                        $minY = min($minY, $py);
-                        $maxX = max($maxX, $px);
-                        $maxY = max($maxY, $py);
+                        $px = (float)($pts[$i] ?? 0) + $offX;
+                        $py = (float)($pts[$i + 1] ?? 0) + $offY;
+                        $minX = min($minX, $px - $shapeStrokePad);
+                        $minY = min($minY, $py - $shapeStrokePad);
+                        $maxX = max($maxX, $px + $shapeStrokePad);
+                        $maxY = max($maxY, $py + $shapeStrokePad);
                     }
                 }
             }
             foreach ($layer->strokes as $stroke) {
                 $points = is_string($stroke->points) ? json_decode($stroke->points, true) : $stroke->points;
+                $strokePad = max(1, (float)($stroke->thickness ?? 6)) / 2;
                 for ($i = 0; $i < count($points); $i += 2) {
-                    $minX = min($minX, $points[$i]);
-                    $minY = min($minY, $points[$i + 1]);
-                    $maxX = max($maxX, $points[$i]);
-                    $maxY = max($maxY, $points[$i + 1]);
+                    $px = (float)($points[$i] ?? 0);
+                    $py = (float)($points[$i + 1] ?? 0);
+                    $minX = min($minX, $px - $strokePad);
+                    $minY = min($minY, $py - $strokePad);
+                    $maxX = max($maxX, $px + $strokePad);
+                    $maxY = max($maxY, $py + $strokePad);
                 }
             }
             foreach ($layer->erasers as $eraser) {
                 $points = is_string($eraser->points) ? json_decode($eraser->points, true) : $eraser->points;
+                $eraserPad = max(1, (float)($eraser->thickness ?? 40)) / 2;
                 for ($i = 0; $i < count($points); $i += 2) {
-                    $minX = min($minX, $points[$i]);
-                    $minY = min($minY, $points[$i + 1]);
-                    $maxX = max($maxX, $points[$i]);
-                    $maxY = max($maxY, $points[$i + 1]);
+                    $px = (float)($points[$i] ?? 0);
+                    $py = (float)($points[$i + 1] ?? 0);
+                    $minX = min($minX, $px - $eraserPad);
+                    $minY = min($minY, $py - $eraserPad);
+                    $maxX = max($maxX, $px + $eraserPad);
+                    $maxY = max($maxY, $py + $eraserPad);
                 }
             }
         }
@@ -560,15 +571,15 @@ class ProjectController extends Controller
         if ($minX === PHP_INT_MAX || $minY === PHP_INT_MAX || $maxX === PHP_INT_MIN || $maxY === PHP_INT_MIN) {
             // Nothing to draw; set reasonable defaults
             $minX = $minY = 0;
-            $maxX = $maxY = 1000;
+            $maxX = $maxY = 256;
         }
 
         // Set canvas size with padding
-        $padding = 50;
-        $width = max(2000, (int)($maxX - $minX + 2 * $padding));
-        $height = max(2000, (int)($maxY - $minY + 2 * $padding));
-        $offsetX = $minX < 0 ? -$minX + $padding : $padding;
-        $offsetY = $minY < 0 ? -$minY + $padding : $padding;
+        $padding = 24;
+        $width = max(64, (int)ceil(($maxX - $minX) + 2 * $padding));
+        $height = max(64, (int)ceil(($maxY - $minY) + 2 * $padding));
+        $offsetX = (float)(-$minX + $padding);
+        $offsetY = (float)(-$minY + $padding);
 
         // Create canvas
         $image = imagecreatetruecolor($width, $height);
