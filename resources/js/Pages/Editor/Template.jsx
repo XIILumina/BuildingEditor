@@ -41,6 +41,7 @@ export default function Template({
   const [selectionBox, setSelectionBox] = useState(null);
   const [guides, setGuides] = useState([]);
   const isDraggingNodeRef = useRef(false);
+  const lastFillRef = useRef({ sig: "", ts: 0 });
 
   const { camera, handleWheel, panBy } = useCamera();
   const { isDrawing, setIsDrawing, currentStroke, eraseAtPoint, startStroke, continueStroke, commitStroke } =
@@ -317,7 +318,24 @@ export default function Template({
       const boundaries = getFillBoundaries();
       const { rooms } = detectRooms(boundaries);
       const containingRoom = rooms.find(roomPoints => isPointInPolygon([pos.x, pos.y], roomPoints));
-      if (containingRoom) setShapes(prev => [...prev, { id: Date.now(), type: "polygon", points: containingRoom.flat(), fill: drawColor, color: drawColor, closed: true, layer_id: activeLayerId }]);
+      if (containingRoom) {
+        const pts = containingRoom.flat();
+        const sig = `${activeLayerId}|${drawColor}|${pts.map(v => Number(v).toFixed(3)).join(",")}`;
+        const now = Date.now();
+        // React strict/dev or duplicated pointer events can trigger fill twice.
+        // Skip identical fill operations fired almost at the same time.
+        if (lastFillRef.current.sig === sig && now - lastFillRef.current.ts < 250) return;
+        lastFillRef.current = { sig, ts: now };
+        setShapes(prev => [...prev, {
+          id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+          type: "polygon",
+          points: pts,
+          fill: drawColor,
+          color: drawColor,
+          closed: true,
+          layer_id: activeLayerId,
+        }]);
+      }
       return;
     }
     if (tool === "picker") {
