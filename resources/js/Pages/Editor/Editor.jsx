@@ -187,6 +187,33 @@ const handleCreateAnchorBlock = () => {
   });
 };
 
+const handleAnchorSelected = () => {
+  if (!selectedId) return;
+  const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
+  const blockId = Date.now();
+  
+  pushHistory("anchor-selected");
+  setStrokes((prev) =>
+    prev.map((s) => ids.includes(s.id) ? { ...s, anchoredBlockId: blockId } : s)
+  );
+  setShapes((prev) =>
+    prev.map((sh) => ids.includes(sh.id) ? { ...sh, anchoredBlockId: blockId } : sh)
+  );
+};
+
+const handleUnanchorSelected = () => {
+  if (!selectedId) return;
+  const ids = Array.isArray(selectedId) ? selectedId : [selectedId];
+  
+  pushHistory("unanchor-selected");
+  setStrokes((prev) =>
+    prev.map((s) => ids.includes(s.id) ? { ...s, anchoredBlockId: undefined } : s)
+  );
+  setShapes((prev) =>
+    prev.map((sh) => ids.includes(sh.id) ? { ...sh, anchoredBlockId: undefined } : sh)
+  );
+};
+
 const confirmPreview = useCallback(() => {
   pushHistory("confirm-ai-draw");
 
@@ -1149,6 +1176,8 @@ useEffect(() => {
             pxPerMeter={pxPerMeter}
             setPxPerMeter={setPxPerMeter}
             aiBusy={aiBusy}
+            handleAnchorSelected={handleAnchorSelected}
+            handleUnanchorSelected={handleUnanchorSelected}
           />
         </motion.div>
       </div>

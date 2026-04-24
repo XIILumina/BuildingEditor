@@ -231,7 +231,8 @@ export default function Template({
 
   const handleSelectObject = (id, e) => {
     if (tool !== "select") return;
-    if (strokes.some(s => s.id === id && (s.locked || s.anchoredBlockId)) || shapes.some(s => s.id === id && (s.locked || s.anchoredBlockId))) return;
+    // Allow selecting anchored objects by direct click, just not locked ones
+    if (strokes.some(s => s.id === id && s.locked) || shapes.some(s => s.id === id && s.locked)) return;
     if (e?.evt?.ctrlKey || e?.evt?.metaKey) {
       setSelectedId(prev => {
         const arr = Array.isArray(prev) ? prev : (prev ? [prev] : []);

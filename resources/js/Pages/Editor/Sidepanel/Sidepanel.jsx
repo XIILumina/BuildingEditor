@@ -10,6 +10,8 @@ import Shapes from './Pages/Shapes'; // Adjust path as needed
 
 export default function Sidepanel({
   makeAnchorBlock,
+  handleAnchorSelected,
+  handleUnanchorSelected,
   sidepanelMode,
   setSidepanelMode,
   thickness,
@@ -100,13 +102,22 @@ export default function Sidepanel({
               pxPerMeter={pxPerMeter}
             />
             <Shapes addShape={addShape} />
-            <motion.button
-              onClick={makeAnchorBlock}
-              className="mt-3 w-full py-2 bg-[#06b6d4] text-[#0a1428] rounded font-medium hover:bg-[#0ea5e9] transition-colors"
-              whileTap={{ scale: 0.96 }}
-            >
-              Anchor Block
-            </motion.button>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <motion.button
+                onClick={handleAnchorSelected}
+                className="py-2 bg-[#06b6d4] text-[#0a1428] rounded font-medium hover:bg-[#0ea5e9] transition-colors"
+                whileTap={{ scale: 0.96 }}
+              >
+                Anchor
+              </motion.button>
+              <motion.button
+                onClick={handleUnanchorSelected}
+                className="py-2 bg-[#f59e0b] text-[#0a1428] rounded font-medium hover:bg-[#d97706] transition-colors"
+                whileTap={{ scale: 0.96 }}
+              >
+                Unanchor
+              </motion.button>
+            </div>
 
             <motion.button
               onClick={mergeSelected}
