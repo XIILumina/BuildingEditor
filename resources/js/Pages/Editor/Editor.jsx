@@ -678,18 +678,18 @@ const selectedObject = useMemo(() => {
     setShapes((s) => [...s, base]);
   }, [pushHistory, activeLayerId]);
 
-  const onStrokesChange = (newStrokes) => {
+  const onStrokesChange = useCallback((newStrokes) => {
     pushHistory("strokes-change");
     setStrokes(newStrokes);
-  };
-  const onErasersChange = (newErasers) => {
+  }, [pushHistory]);
+  const onErasersChange = useCallback((newErasers) => {
     pushHistory("erasers-change");
     setErasers(newErasers);
-  };
-  const onShapesChange = (newShapes) => {
+  }, [pushHistory]);
+  const onShapesChange = useCallback((newShapes) => {
     pushHistory("shapes-change");
     setShapes(newShapes);
-  };
+  }, [pushHistory]);
 
   const handleProjectNameChange = (e) => {
     setProjectName(e.target.value);

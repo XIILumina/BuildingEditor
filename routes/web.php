@@ -63,7 +63,7 @@ Route::middleware(['auth'])->group(function () {
 
 // Catch unknown web routes and show the custom 404 page.
 Route::fallback(function () {
-    return Inertia::render('Errors/NotFound')->toResponse(request())->setStatusCode(404);
+    return response()->view('errors.404', [], 404);
 });
 
 

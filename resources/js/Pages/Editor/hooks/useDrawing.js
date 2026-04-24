@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { num } from '../utils/shapeUtils';
 import { isPointInPolygon } from '../utils/drawingUtils';
 
@@ -21,6 +21,9 @@ export function useDrawing({
 }) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState(null);
+  // Mirror of currentStroke for synchronous reads — avoids calling setState
+  // inside another setState updater (causes infinite loop + Strict Mode double-invoke).
+  const currentStrokeRef = useRef(null);
 
   const isSameLayer = (lid) => Number(lid) === Number(activeLayerId);
 
@@ -77,70 +80,78 @@ export function useDrawing({
   }, [strokes, shapes, activeLayerId, thickness, setStrokes, setShapes, setSelectedId]);
 
   const startStroke = useCallback((pos) => {
-    setIsDrawing(true);
-    setCurrentStroke({
+    const newStroke = {
       points: [pos.x, pos.y],
       color: drawColor,
       thickness,
       isEraser: false,
-    });
-  }, [drawColor, thickness, tool]);
+    };
+    currentStrokeRef.current = newStroke;
+    setCurrentStroke(newStroke);
+    setIsDrawing(true);
+  }, [drawColor, thickness]);
 
   const continueStroke = useCallback((pos, snapPositions, setGuides) => {
-    setCurrentStroke((prev) => {
-      if (!prev) return prev;
-      let newPoints = [...prev.points];
-      if (tool === 'wall') {
-        const threshold = 5;
-        let newGuides = [], snappedX = pos.x, snappedY = pos.y;
-        let minDistV = Infinity, bestSv = null;
-        for (const sv of snapPositions.vertical) {
-          const d = Math.abs(sv - pos.x);
-          if (d < threshold && d < minDistV) { minDistV = d; bestSv = sv; }
-        }
-        if (bestSv !== null) { snappedX = bestSv; newGuides.push({ orientation: 'V', position: bestSv }); }
-        let minDistH = Infinity, bestSh = null;
-        for (const sh of snapPositions.horizontal) {
-          const d = Math.abs(sh - pos.y);
-          if (d < threshold && d < minDistH) { minDistH = d; bestSh = sh; }
-        }
-        if (bestSh !== null) { snappedY = bestSh; newGuides.push({ orientation: 'H', position: bestSh }); }
-        setGuides(newGuides);
-        newPoints = [newPoints[0], newPoints[1], snappedX, snappedY];
-      } else {
-        newPoints = [...newPoints, pos.x, pos.y];
+    const prev = currentStrokeRef.current;
+    if (!prev) return;
+    let newPoints = [...prev.points];
+    if (tool === 'wall') {
+      const threshold = 5;
+      let newGuides = [], snappedX = pos.x, snappedY = pos.y;
+      let minDistV = Infinity, bestSv = null;
+      for (const sv of snapPositions.vertical) {
+        const d = Math.abs(sv - pos.x);
+        if (d < threshold && d < minDistV) { minDistV = d; bestSv = sv; }
       }
-      return { ...prev, points: newPoints };
-    });
+      if (bestSv !== null) { snappedX = bestSv; newGuides.push({ orientation: 'V', position: bestSv }); }
+      let minDistH = Infinity, bestSh = null;
+      for (const sh of snapPositions.horizontal) {
+        const d = Math.abs(sh - pos.y);
+        if (d < threshold && d < minDistH) { minDistH = d; bestSh = sh; }
+      }
+      if (bestSh !== null) { snappedY = bestSh; newGuides.push({ orientation: 'H', position: bestSh }); }
+      setGuides(newGuides);
+      newPoints = [newPoints[0], newPoints[1], snappedX, snappedY];
+    } else {
+      newPoints = [...newPoints, pos.x, pos.y];
+    }
+    const updated = { ...prev, points: newPoints };
+    currentStrokeRef.current = updated;
+    setCurrentStroke(updated);
   }, [tool]);
 
   const commitStroke = useCallback((pos) => {
-    setCurrentStroke((prev) => {
-      if (!prev) return prev;
-      let points = [...prev.points];
-      if (snapToGrid && pos) {
-        const snappedX = Math.round(pos.x / gridSize) * gridSize;
-        const snappedY = Math.round(pos.y / gridSize) * gridSize;
-        points = tool === 'wall'
-          ? [points[0], points[1], snappedX, snappedY]
-          : [...points.slice(0, -2), snappedX, snappedY];
-      }
-      if (points.length >= 4) {
-        setStrokes((all) => [...all, {
-          id: Date.now(),
-          points,
-          x: 0,
-          y: 0,
-          layer_id: activeLayerId,
-          color: prev.color,
-          thickness: prev.thickness,
-          isEraser: prev.isEraser,
-          material,
-        }]);
-      }
-      return null;
-    });
+    // Read synchronously from the ref — never call setStrokes inside a
+    // setCurrentStroke updater, which causes setState-inside-updater loops.
+    const prev = currentStrokeRef.current;
+    currentStrokeRef.current = null;
+    setCurrentStroke(null);
     setIsDrawing(false);
+    if (!prev) return;
+    let points = [...prev.points];
+    if (snapToGrid && pos) {
+      const snappedX = Math.round(pos.x / gridSize) * gridSize;
+      const snappedY = Math.round(pos.y / gridSize) * gridSize;
+      points = tool === 'wall'
+        ? [points[0], points[1], snappedX, snappedY]
+        : [...points.slice(0, -2), snappedX, snappedY];
+    }
+    if (points.length >= 4) {
+      // Use Date.now() + random suffix to guarantee uniqueness even when
+      // multiple strokes are committed within the same millisecond.
+      const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+      setStrokes((all) => [...all, {
+        id,
+        points,
+        x: 0,
+        y: 0,
+        layer_id: activeLayerId,
+        color: prev.color,
+        thickness: prev.thickness,
+        isEraser: prev.isEraser,
+        material,
+      }]);
+    }
   }, [snapToGrid, gridSize, tool, activeLayerId, material, setStrokes]);
 
   return {

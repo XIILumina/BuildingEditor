@@ -5,9 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
-use Inertia\Inertia;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Throwable;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -32,7 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 404);
             }
 
-            return Inertia::render('Errors/NotFound')->toResponse($request)->setStatusCode(404);
+            return response()->view('errors.404', [], 404);
         });
 
         $exceptions->render(function (TokenMismatchException $e, Request $request) {
@@ -43,11 +41,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 419);
             }
 
-            return Inertia::render('Errors/SessionExpired')->toResponse($request)->setStatusCode(419);
+            return response()->view('errors.419', [], 419);
         });
 
         // Keep a clean fallback for unexpected failures.
-        $exceptions->render(function (Throwable $e, Request $request) {
+        $exceptions->render(function (\Throwable $e, Request $request) {
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
@@ -55,6 +53,6 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 500);
             }
 
-            return Inertia::render('Errors/ServerError')->toResponse($request)->setStatusCode(500);
+            return response()->view('errors.500', [], 500);
         });
     })->create();

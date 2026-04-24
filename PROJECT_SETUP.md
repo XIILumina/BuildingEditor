@@ -15,7 +15,7 @@ This document explains how to run the project locally and on a VPS.
 1. Clone project:
 
 ```bash
-git clone <your-repo-url> BuildingEditor
+git clone https://github.com/XIILumina/BuildingEditor.git BuildingEditor
 cd BuildingEditor
 ```
 
@@ -52,7 +52,7 @@ DB_PASSWORD=
 ```env
 OPENAI_API_KEY=your_key_here
 ```
-
+i wont give you mine tho, go make it for your self openai.
 5. Run migrations:
 
 ```bash

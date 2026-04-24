@@ -40,7 +40,7 @@ export default function Template({
   const [isPanning, setIsPanning] = useState(false);
   const [selectionBox, setSelectionBox] = useState(null);
   const [guides, setGuides] = useState([]);
-  const [isDraggingNode, setIsDraggingNode] = useState(false);
+  const isDraggingNodeRef = useRef(false);
 
   const { camera, handleWheel, panBy } = useCamera();
   const { isDrawing, setIsDrawing, currentStroke, eraseAtPoint, startStroke, continueStroke, commitStroke } =
@@ -49,6 +49,17 @@ export default function Template({
     usePointEditMode({ selectedId, shapes, setShapes, transformerRef, stageRef, activeLayerId, tool, snapToGrid, gridSize });
 
   const isSameLayer = (lid) => Number(lid) === Number(activeLayerId);
+  const strokeNodeId = (id) => `stroke-${id}`;
+  const shapeNodeId = (id) => `shape-${id}`;
+  const parseEntityId = (rawId) => {
+    if (!rawId) return NaN;
+    const m = String(rawId).match(/^(?:stroke|shape)-(\d+)$/);
+    if (m) return parseInt(m[1], 10);
+    return parseInt(String(rawId), 10);
+  };
+  const findEntityNode = (stage, id) =>
+    stage.findOne(`#${strokeNodeId(id)}`) || stage.findOne(`#${shapeNodeId(id)}`);
+
   const isAnchored = (maybeId) => {
     const id = typeof maybeId === "number" ? maybeId : parseInt(maybeId, 10);
     if (!Number.isFinite(id)) return false;
@@ -92,8 +103,8 @@ export default function Template({
       tr.nodes(valid.length ? valid : []);
       if (valid.length) tr.on("transformend", handleTransformEnd);
     };
-    if (Array.isArray(selectedId) && selectedId.length) attach(selectedId.map(id => stage.findOne(`#${id}`)));
-    else if (!Array.isArray(selectedId) && selectedId) attach([stage.findOne(`#${selectedId}`)]);
+    if (Array.isArray(selectedId) && selectedId.length) attach(selectedId.map(id => findEntityNode(stage, id)));
+    else if (!Array.isArray(selectedId) && selectedId) attach([findEntityNode(stage, selectedId)]);
     else tr.nodes([]);
     tr.getLayer()?.batchDraw();
   }, [selectedId, strokes, shapes, activeLayerId, pointEditMode]);
@@ -138,12 +149,12 @@ export default function Template({
     return snaps;
   };
 
-  const handleDragStart = () => setIsDraggingNode(true);
+  const handleDragStart = () => { isDraggingNodeRef.current = true; };
   const handleDragMove = e => {
-    const id = parseInt(e?.target?.id?.() || 0, 10);
+    const id = parseEntityId(e?.target?.id?.());
     if (isAnchored(id)) { e.target.x(0); e.target.y(0); setGuides([]); return; }
     const node = e.target;
-    if (Array.isArray(selectedId) && selectedId.length > 1) { setGuides([]); return; }
+    if (Array.isArray(selectedId) && selectedId.length > 1) { if (guides.length > 0) setGuides([]); return; }
     const snaps = getSnapPositions();
     const threshold = 5;
     const bounds = node.getClientRect({ relativeTo: node.getParent() });
@@ -160,9 +171,9 @@ export default function Template({
     setGuides(newGuides);
   };
   const handleDragEnd = e => {
-    setIsDraggingNode(false);
+    isDraggingNodeRef.current = false;
     const node = e.target;
-    const id = parseInt(node.id());
+    const id = parseEntityId(node.id());
     if (isAnchored(id)) { node.x(0); node.y(0); node.getLayer()?.batchDraw(); setGuides([]); return; }
     if (node.getClassName() === "Line") {
       const relTransform = node.getTransform();
@@ -186,7 +197,7 @@ export default function Template({
   };
   const handleTransformEnd = () => {
     (transformerRef.current?.nodes() || []).forEach(node => {
-      const id = parseInt(node.id());
+      const id = parseEntityId(node.id());
       if (isAnchored(id)) { node.x(0); node.y(0); node.scaleX(1); node.scaleY(1); node.rotation(0); node.getLayer()?.batchDraw(); return; }
       if (node.getClassName() === "Line") {
         const relTransform = node.getTransform();
@@ -293,7 +304,7 @@ export default function Template({
     if (e.evt.button === 2) { setIsPanning(true); return; }
     let pos = getMousePos(stage);
     if (!pos) return;
-    if (tool === "select" && !isDraggingNode && (e.target === stage || e.target.getClassName?.() === "Layer")) {
+    if (tool === "select" && !isDraggingNodeRef.current && (e.target === stage || e.target.getClassName?.() === "Layer")) {
       if (!e.evt.ctrlKey && !e.evt.metaKey) { setSelectionBox({ x: pos.x, y: pos.y, width: 0, height: 0 }); setSelectedId(null); }
       return;
     }
@@ -325,7 +336,7 @@ export default function Template({
     if (isPanning) { panBy(e.evt.movementX, e.evt.movementY); return; }
     if (isDrawing && tool === "eraser") { eraseAtPoint(pos); return; }
     if (isDrawing && currentStroke && (tool === "freedraw" || tool === "wall")) { continueStroke(pos, getSnapPositions(), setGuides); return; }
-    if (selectionBox && tool === "select" && !isDraggingNode) setSelectionBox({ ...selectionBox, width: pos.x - selectionBox.x, height: pos.y - selectionBox.y });
+    if (selectionBox && tool === "select" && !isDraggingNodeRef.current) setSelectionBox({ ...selectionBox, width: pos.x - selectionBox.x, height: pos.y - selectionBox.y });
   };
 
   const handleMouseUp = () => {
@@ -335,7 +346,7 @@ export default function Template({
       else setIsDrawing(false);
     }
     setGuides([]);
-    if (selectionBox && tool === "select" && !isDraggingNode) {
+    if (selectionBox && tool === "select" && !isDraggingNodeRef.current) {
       const { x, y, width, height } = selectionBox;
       const x1 = Math.min(x, x + width), x2 = Math.max(x, x + width);
       const y1 = Math.min(y, y + height), y2 = Math.max(y, y + height);
@@ -344,7 +355,7 @@ export default function Template({
       const nodes = layer ? layer.find(n => { const cls = n.getClassName?.(); return ["Line","Rect","Circle","Ellipse","Path"].includes(cls) && n.id?.(); }) : [];
       const hitIds = nodes
         .filter(n => { try { return intersectsRect(n.getClientRect({ relativeTo: layer })); } catch { return false; } })
-        .map(n => parseInt(n.id(), 10)).filter(id => Number.isFinite(id))
+        .map(n => parseEntityId(n.id())).filter(id => Number.isFinite(id))
         .filter(id => {
           const st = strokes.find(s => s.id === id); if (st && (st.locked || st.anchoredBlockId)) return false;
           const sh = shapes.find(s => s.id === id); if (sh && (sh.locked || sh.anchoredBlockId)) return false;
@@ -402,10 +413,10 @@ export default function Template({
         </Layer>
         <Layer ref={activeLayerRef}>
           {strokes.filter(s => isSameLayer(s.layer_id)).map(s => (
-            <Line key={s.id} id={s.id.toString()} x={num(s.x)} y={num(s.y)} points={s.points.map(p => num(p))} stroke={s.color} strokeWidth={num(s.thickness, 1)} lineCap="round" lineJoin="round" tension={0.5} draggable={tool === "select" && !s.locked && !s.anchoredBlockId} onClick={e => (!s.locked && !s.anchoredBlockId) && handleSelectObject(s.id, e)} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} />
+            <Line key={`stroke-${s.id}`} id={strokeNodeId(s.id)} x={num(s.x)} y={num(s.y)} points={s.points.map(p => num(p))} stroke={s.color} strokeWidth={num(s.thickness, 1)} lineCap="round" lineJoin="round" tension={0.5} draggable={tool === "select" && !s.locked && !s.anchoredBlockId} onClick={e => (!s.locked && !s.anchoredBlockId) && handleSelectObject(s.id, e)} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} />
           ))}
           {shapes.filter(sh => isSameLayer(sh.layer_id)).map(sh => (
-            <ShapeRenderer key={sh.id} sh={sh} tool={tool} inactiveLayerOpacity={inactiveLayerOpacity} {...shapeEvents} />
+            <ShapeRenderer key={`shape-${sh.id}`} nodeId={shapeNodeId(sh.id)} sh={sh} tool={tool} inactiveLayerOpacity={inactiveLayerOpacity} {...shapeEvents} />
           ))}
           {pointEditMode && <VertexHandles editingPoints={editingPoints} scale={camera.scale} snapToGrid={snapToGrid} gridSize={gridSize} onUpdate={updateEditingPoint} />}
           {mergedBlocks.filter(b => b.layer_id === activeLayerId).map(b => (

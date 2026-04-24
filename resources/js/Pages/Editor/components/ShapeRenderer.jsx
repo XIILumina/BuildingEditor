@@ -22,6 +22,7 @@ export default function ShapeRenderer({
   inactive = false,
   preview = false,
   prefix = '',
+  nodeId,
   tool,
   inactiveLayerOpacity = 0.3,
   onSelect,
@@ -35,7 +36,7 @@ export default function ShapeRenderer({
   const draggable = !inactive && !preview && tool === 'select' && !sh.locked && !sh.anchoredBlockId;
   const listening = !inactive && !preview;
   const key = `${prefix}${sh.id}`;
-  const id = (inactive || preview) ? undefined : sh.id.toString();
+  const id = (inactive || preview) ? undefined : (nodeId || sh.id.toString());
 
   const events = listening ? {
     onClick: (e) => (!sh.locked && !sh.anchoredBlockId) && onSelect?.(sh.id, e),

@@ -6,10 +6,13 @@ export const pointsEqual = (p1, p2, tol = 5) => {
 };
 
 const EPS = 1e-6;
+const NODE_MERGE_TOL = 2;
 
 const pointKey = (x, y) => `${x.toFixed(4)}|${y.toFixed(4)}`;
 
 const cross2 = (ax, ay, bx, by) => ax * by - ay * bx;
+
+const pointDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 const polygonArea = (poly) => {
   if (!Array.isArray(poly) || poly.length < 3) return 0;
@@ -107,9 +110,36 @@ const splitAtIntersections = (segments) => {
 
 const buildDirectedGraph = (segments) => {
   const nodes = new Map();
+  const buckets = new Map();
+
+  const bucketKey = (x, y) => `${Math.round(x / NODE_MERGE_TOL)}|${Math.round(y / NODE_MERGE_TOL)}`;
   const ensureNode = (pt) => {
-    const k = pointKey(pt[0], pt[1]);
-    if (!nodes.has(k)) nodes.set(k, { point: [pt[0], pt[1]], out: [] });
+    const x = Number(pt[0]);
+    const y = Number(pt[1]);
+    const bx = Math.round(x / NODE_MERGE_TOL);
+    const by = Math.round(y / NODE_MERGE_TOL);
+
+    // Merge endpoints that are very close so tiny gaps do not break room closure.
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const near = buckets.get(`${bx + dx}|${by + dy}`) || [];
+        for (let i = 0; i < near.length; i++) {
+          const key = near[i];
+          const node = nodes.get(key);
+          if (!node) continue;
+          if (pointDist(node.point, [x, y]) <= NODE_MERGE_TOL) return key;
+        }
+      }
+    }
+
+    const k = pointKey(x, y);
+    if (!nodes.has(k)) {
+      nodes.set(k, { point: [x, y], out: [] });
+      const bKey = bucketKey(x, y);
+      const arr = buckets.get(bKey) || [];
+      arr.push(k);
+      buckets.set(bKey, arr);
+    }
     return k;
   };
 
@@ -170,12 +200,25 @@ const walkFaces = (nodes) => {
         let best = null;
         let bestTurn = Infinity;
         atNode.out.forEach((cand) => {
+          if (cand.to === curFrom) return;
           const turn = angleNorm(cand.angle - incomingAngle);
+          if (turn <= EPS) return;
           if (turn < bestTurn - EPS) {
             bestTurn = turn;
             best = cand;
           }
         });
+
+        if (!best) {
+          atNode.out.forEach((cand) => {
+            if (cand.to === curFrom) return;
+            const turn = angleNorm(cand.angle - incomingAngle);
+            if (turn < bestTurn - EPS) {
+              bestTurn = turn;
+              best = cand;
+            }
+          });
+        }
 
         if (!best) break;
         const nextFrom = curTo;
@@ -209,7 +252,6 @@ export const detectRooms = (boundaries = [], _extraPoints = []) => {
     if (!Array.isArray(face) || face.length < 3) return;
     const area = polygonArea(face);
     if (Math.abs(area) < 1) return;
-    if (area > 0) return; // skip outer face orientation
 
     const norm = face.map(([x, y]) => pointKey(x, y)).sort().join('::');
     if (seen.has(norm)) return;
