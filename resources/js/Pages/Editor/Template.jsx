@@ -79,8 +79,9 @@ export default function Template({
 
   useEffect(() => {
     const idsInActive = new Set([
-      ...strokes.filter(s => isSameLayer(s.layer_id) && !s.locked && !s.anchoredBlockId).map(s => s.id),
-      ...shapes.filter(sh => isSameLayer(sh.layer_id) && !sh.locked && !sh.anchoredBlockId).map(sh => sh.id),
+      // Keep anchored items selectable so users can unanchor/edit them.
+      ...strokes.filter(s => isSameLayer(s.layer_id) && !s.locked).map(s => s.id),
+      ...shapes.filter(sh => isSameLayer(sh.layer_id) && !sh.locked).map(sh => sh.id),
     ]);
     if (Array.isArray(selectedId)) {
       const keep = selectedId.filter(id => idsInActive.has(id));

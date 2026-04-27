@@ -20,6 +20,12 @@ export function usePointEditMode({
   const [editingPoints, setEditingPoints] = useState([]);
   const [editBtnPos, setEditBtnPos] = useState(null);
 
+  const findShapeNode = useCallback((stage, id) => {
+    if (!stage || !id) return null;
+    // Active shape nodes use the `shape-<id>` convention in Template.jsx.
+    return stage.findOne(`#shape-${id}`) || stage.findOne(`#${id}`);
+  }, []);
+
   // Compute the "Edit Points" button position near the selection
   useEffect(() => {
     const singleId = Array.isArray(selectedId) ? null : selectedId;
@@ -28,7 +34,7 @@ export function usePointEditMode({
     if (!sh || sh.type === 'circle' || sh.type === 'oval') { setEditBtnPos(null); return; }
     const stage = stageRef.current;
     if (!stage) return;
-    const node = stage.findOne(`#${singleId}`);
+    const node = findShapeNode(stage, singleId);
     if (!node) { setEditBtnPos(null); return; }
     try {
       const box = node.getClientRect();
@@ -36,7 +42,7 @@ export function usePointEditMode({
     } catch {
       setEditBtnPos(null);
     }
-  }, [selectedId, shapes, pointEditMode, stageRef]);
+  }, [selectedId, shapes, pointEditMode, stageRef, findShapeNode]);
 
   // Exit point edit mode when tool or layer changes
   useEffect(() => {
@@ -86,12 +92,12 @@ export function usePointEditMode({
     const stage = stageRef.current;
     const tr = transformerRef.current;
     if (stage && tr && editingShapeId) {
-      const node = stage.findOne(`#${editingShapeId}`);
+      const node = findShapeNode(stage, editingShapeId);
       if (node) { tr.nodes([node]); tr.getLayer()?.batchDraw(); }
     }
     setEditingShapeId(null);
     setEditingPoints([]);
-  }, [editingShapeId, stageRef, transformerRef]);
+  }, [editingShapeId, stageRef, transformerRef, findShapeNode]);
 
   const togglePointEditMode = useCallback(() => {
     if (pointEditMode) exitPointEditMode();

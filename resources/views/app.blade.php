@@ -13,8 +13,11 @@
 
         <!-- Scripts -->
         @routes
-        @viteReactRefresh
-        @vite(['resources/js/app.jsx', "resources/js/Pages/{$page['component']}.jsx"])
+        @php($hasViteAssets = file_exists(public_path('hot')) || file_exists(public_path('build/manifest.json')))
+        @if ($hasViteAssets)
+            @viteReactRefresh
+            @vite(['resources/js/app.jsx', "resources/js/Pages/{$page['component']}.jsx"])
+        @endif
         @inertiaHead
     </head>
     <body class="font-sans antialiased">

@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -46,6 +47,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Keep a clean fallback for unexpected failures.
         $exceptions->render(function (\Throwable $e, Request $request) {
+            // Let Laravel/Inertia handle validation responses (422 + field errors).
+            if ($e instanceof ValidationException) {
+                return null;
+            }
+
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,

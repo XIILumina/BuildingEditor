@@ -61,10 +61,9 @@ Route::middleware(['auth'])->group(function () {
 });
 });
 
+require __DIR__.'/auth.php';
+
 // Catch unknown web routes and show the custom 404 page.
 Route::fallback(function () {
     return response()->view('errors.404', [], 404);
 });
-
-
-require __DIR__.'/auth.php';
