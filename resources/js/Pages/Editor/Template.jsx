@@ -377,8 +377,8 @@ export default function Template({
         .filter(n => { try { return intersectsRect(n.getClientRect({ relativeTo: layer })); } catch { return false; } })
         .map(n => parseEntityId(n.id())).filter(id => Number.isFinite(id))
         .filter(id => {
-          const st = strokes.find(s => s.id === id); if (st && (st.locked || st.anchoredBlockId)) return false;
-          const sh = shapes.find(s => s.id === id); if (sh && (sh.locked || sh.anchoredBlockId)) return false;
+          const st = strokes.find(s => s.id === id); if (st && st.locked) return false;
+          const sh = shapes.find(s => s.id === id); if (sh && sh.locked) return false;
           return true;
         });
       const hits = Array.from(new Set(hitIds));
