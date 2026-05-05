@@ -74,7 +74,7 @@ const roundTo = (n, step = 0.1) => {
   return Math.round(x / step) * step;
 };
 
-// Create a compact version of project data for AI (reduces token size)
+// Reduce project data to a compact form before sending to AI — keeps token count small
 const compactProjectData = (data) => {
   const d = JSON.parse(JSON.stringify(data || {}));
   d.strokes = (d.strokes || []).map((s) => ({
@@ -137,6 +137,7 @@ export default function Editor({ projectId }) {
 
   const saveInProgress = useRef(false);
 
+  // Snapshot is a deep-copy of all mutable state used for undo/redo
   const snapshot = useCallback(() => {
     return {
       strokes: JSON.parse(JSON.stringify(strokes)),
@@ -181,7 +182,8 @@ const handleUnanchorSelected = () => {
   );
 };
 
-const confirmPreview = useCallback(() => {
+  // confirmPreview: promotes AI-generated ghost shapes/strokes into real project data
+  const confirmPreview = useCallback(() => {
   pushHistory("confirm-ai-draw");
 
   const validatedStrokes = (previewStrokes || [])
@@ -428,6 +430,16 @@ const selectedObject = useMemo(() => {
       setShapes(prev => prev.map(sh => {
         if (sh.id !== selectedId) return sh;
         let newSh = { ...sh };
+        // Polygons store absolute coords in their points array (x/y is always 0).
+        // Moving a polygon means shifting every point by the delta, not setting an x/y offset.
+        if ((property === 'x' || property === 'y') && sh.type === 'polygon' && Array.isArray(sh.points)) {
+          const axis = property === 'x' ? 0 : 1;
+          let minCoord = Infinity;
+          for (let i = axis; i < sh.points.length; i += 2) minCoord = Math.min(minCoord, sh.points[i]);
+          const delta = value - minCoord;
+          newSh.points = sh.points.map((p, i) => (i % 2 === axis) ? p + delta : p);
+          return newSh; // x/y stay 0
+        }
         if (property === 'x') newSh.x = value;
         else if (property === 'y') newSh.y = value;
         else if (property === 'rotation') newSh.rotation = value;

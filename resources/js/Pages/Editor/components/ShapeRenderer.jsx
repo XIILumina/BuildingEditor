@@ -25,6 +25,7 @@ export default function ShapeRenderer({
   nodeId,
   tool,
   inactiveLayerOpacity = 0.3,
+  lockDrag = false,
   onSelect,
   onDragStart,
   onDragMove,
@@ -33,7 +34,8 @@ export default function ShapeRenderer({
   const fill = sh.color || sh.fill || '#9CA3AF';
   const opacity = inactive ? inactiveLayerOpacity : (preview ? 0.7 : 1);
   const dash = preview ? [5, 5] : undefined;
-  const draggable = !inactive && !preview && tool === 'select' && !sh.locked && !sh.anchoredBlockId;
+  // lockDrag: true while vertex-edit mode is active — prevents accidentally moving the shape
+  const draggable = !inactive && !preview && tool === 'select' && !sh.locked && !sh.anchoredBlockId && !lockDrag;
   const listening = !inactive && !preview;
   const key = `${prefix}${sh.id}`;
   const id = (inactive || preview) ? undefined : (nodeId || sh.id.toString());
@@ -103,6 +105,7 @@ export default function ShapeRenderer({
   }
 
   if (sh.type === 'polygon') {
+    // Polygons render as a Konva Path (SVG path data). Points are absolute canvas coords baked in.
     return (
       <Path
         key={key}

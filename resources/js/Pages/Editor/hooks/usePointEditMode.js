@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { num } from '../utils/shapeUtils';
 
 /**
@@ -19,6 +19,26 @@ export function usePointEditMode({
   const [editingShapeId, setEditingShapeId] = useState(null);
   const [editingPoints, setEditingPoints] = useState([]);
   const [editBtnPos, setEditBtnPos] = useState(null);
+  // Tracks whether the current shapes update was triggered by our own updateEditingPoint
+  // so we don't re-sync editingPoints unnecessarily.
+  const selfUpdateRef = useRef(false);
+
+  // Keep editingPoints in sync if the shape is mutated externally while in point edit mode
+  // (e.g. undo/redo, AI operations). Skips the cycle caused by updateEditingPoint itself.
+  useEffect(() => {
+    if (!pointEditMode || !editingShapeId) return;
+    if (selfUpdateRef.current) { selfUpdateRef.current = false; return; }
+    const sh = shapes.find(s => s.id === editingShapeId);
+    if (!sh || !Array.isArray(sh.points)) return;
+    const offX = num(sh.x) || 0;
+    const offY = num(sh.y) || 0;
+    const pts = sh.points.map((p, i) => p + (i % 2 === 0 ? offX : offY));
+    // Only update if values actually differ to avoid unnecessary renders
+    setEditingPoints(prev => {
+      if (prev.length === pts.length && prev.every((v, i) => v === pts[i])) return prev;
+      return pts;
+    });
+  }, [shapes, pointEditMode, editingShapeId]);
 
   const findShapeNode = useCallback((stage, id) => {
     if (!stage || !id) return null;
@@ -61,6 +81,7 @@ export function usePointEditMode({
 
     let pts = [];
     if (sh.type === 'rect') {
+      // Rects are converted to 4-point polygon so every corner becomes independently draggable
       const x = num(sh.x), y = num(sh.y);
       const w = num(sh.width, 100), h = num(sh.height, 60);
       pts = [x, y, x + w, y, x + w, y + h, x, y + h];
@@ -70,6 +91,7 @@ export function usePointEditMode({
           : s
       ));
     } else if (sh.type === 'polygon') {
+      // Flatten any existing x/y offset into the absolute point coords
       const offX = num(sh.x), offY = num(sh.y);
       pts = (sh.points || []).map((p, i) => p + (i % 2 === 0 ? offX : offY));
       setShapes(prev => prev.map(s =>
@@ -88,7 +110,7 @@ export function usePointEditMode({
 
   const exitPointEditMode = useCallback(() => {
     setPointEditMode(false);
-    // Re-attach transformer
+    // Re-attach the Konva Transformer so the shape can be scaled/rotated again
     const stage = stageRef.current;
     const tr = transformerRef.current;
     if (stage && tr && editingShapeId) {
@@ -105,6 +127,8 @@ export function usePointEditMode({
   }, [pointEditMode, enterPointEditMode, exitPointEditMode]);
 
   const updateEditingPoint = useCallback((idx, x, y) => {
+    // Mark this as a self-driven update so the sync effect below doesn't needlessly re-sync
+    selfUpdateRef.current = true;
     setEditingPoints(prev => {
       const next = [...prev];
       next[idx * 2] = x;

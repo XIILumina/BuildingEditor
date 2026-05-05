@@ -43,9 +43,12 @@ export default function Template({
   const isDraggingNodeRef = useRef(false);
   const lastFillRef = useRef({ sig: "", ts: 0 });
 
+  // Camera: handles pan (right-drag) and scroll-wheel zoom
   const { camera, handleWheel, panBy } = useCamera();
+  // Drawing: tracks in-progress stroke/erase for freehand + wall tools
   const { isDrawing, setIsDrawing, currentStroke, eraseAtPoint, startStroke, continueStroke, commitStroke } =
     useDrawing({ tool, strokes, setStrokes, shapes, setShapes, setSelectedId, activeLayerId, snapToGrid, gridSize, drawColor, thickness, material });
+  // PointEdit: manages vertex-handle mode — lets users drag individual polygon corners
   const { pointEditMode, editingShapeId, editingPoints, editBtnPos, togglePointEditMode, updateEditingPoint } =
     usePointEditMode({ selectedId, shapes, setShapes, transformerRef, stageRef, activeLayerId, tool, snapToGrid, gridSize });
 
@@ -124,6 +127,7 @@ export default function Template({
     return point;
   };
 
+  // Collect all edge/center snap positions from every shape and stroke on the active layer
   const getSnapPositions = () => {
     const snaps = { vertical: new Set(), horizontal: new Set() };
     shapes.forEach(sh => {
@@ -151,6 +155,7 @@ export default function Template({
     return snaps;
   };
 
+  // Track drag state so the selection-box is not started while dragging an object
   const handleDragStart = () => { isDraggingNodeRef.current = true; };
   const handleDragMove = e => {
     const id = parseEntityId(e?.target?.id?.());
@@ -187,6 +192,7 @@ export default function Template({
       setShapes(prev => prev.map(sh => {
         if (sh.id !== id) return sh;
         if (sh.type === "polygon" && Array.isArray(sh.points)) {
+          // Polygons keep x:0 y:0 — bake the drag offset into every point so the shape is self-contained
           const dx = node.x() || 0, dy = node.y() || 0;
           const newPoints = sh.points.map((p, i) => p + (i % 2 === 0 ? dx : dy));
           node.x(0); node.y(0); node.getLayer()?.batchDraw();
@@ -218,6 +224,7 @@ export default function Template({
             const ry = typeof node.radiusY === "function" ? node.radiusY() : (sh.radiusY || 0);
             newSh.radiusX = rx * node.scaleX(); newSh.radiusY = ry * node.scaleY(); node.scaleX(1); node.scaleY(1);
           } else if (sh.type === "polygon") {
+            // Bake scale + rotate + translate into each point, then reset transform to identity
             const relTransform = node.getTransform();
             const newPoints = [];
             for (let i = 0; i < sh.points.length; i += 2) { const w = relTransform.point({ x: sh.points[i], y: sh.points[i + 1] }); newPoints.push(w.x, w.y); }
@@ -316,6 +323,7 @@ export default function Template({
       if (!["Line", "Rect", "Circle", "Ellipse", "Path"].includes(cls) && !e.evt.ctrlKey && !e.evt.metaKey) setSelectedId(null);
     }
     if (tool === "fill") {
+      // Detect the closed room region under the click and create a filled polygon from it
       const boundaries = getFillBoundaries();
       const { rooms } = detectRooms(boundaries);
       const containingRoom = rooms.find(roomPoints => isPointInPolygon([pos.x, pos.y], roomPoints));
@@ -438,8 +446,9 @@ export default function Template({
             <Line key={`stroke-${s.id}`} id={strokeNodeId(s.id)} x={num(s.x)} y={num(s.y)} points={s.points.map(p => num(p))} stroke={s.color} strokeWidth={num(s.thickness, 1)} lineCap="round" lineJoin="round" tension={0.5} draggable={tool === "select" && !s.locked && !s.anchoredBlockId} onClick={e => !s.locked && handleSelectObject(s.id, e)} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd} />
           ))}
           {shapes.filter(sh => isSameLayer(sh.layer_id)).map(sh => (
-            <ShapeRenderer key={`shape-${sh.id}`} nodeId={shapeNodeId(sh.id)} sh={sh} tool={tool} inactiveLayerOpacity={inactiveLayerOpacity} {...shapeEvents} />
+            <ShapeRenderer key={`shape-${sh.id}`} nodeId={shapeNodeId(sh.id)} sh={sh} tool={tool} inactiveLayerOpacity={inactiveLayerOpacity} lockDrag={pointEditMode && sh.id === editingShapeId} {...shapeEvents} />
           ))}
+          {/* Point-edit mode: draggable vertex handles overlay the selected polygon */}
           {pointEditMode && <VertexHandles editingPoints={editingPoints} scale={camera.scale} snapToGrid={snapToGrid} gridSize={gridSize} onUpdate={updateEditingPoint} />}
           {mergedBlocks.filter(b => b.layer_id === activeLayerId).map(b => (
             <Rect key={`block-${b.id}`} x={num(b.x)} y={num(b.y)} width={num(b.width)} height={num(b.height)} fill="rgba(6,182,212,0.08)" stroke="#06b6d4" strokeWidth={1} dash={[6, 6]} listening={true} onClick={e => { e.cancelBubble = true; onUnmergeBlock(b.id); }} draggable={false} />

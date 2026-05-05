@@ -111,7 +111,12 @@ export default function Properties({
 
   const getX = (obj) => {
     if (!obj) return '';
-    // Prefer explicit x; for strokes, use first point if x is undefined
+    // Polygons: x is always 0 (coords baked into points). Show the real left edge instead.
+    if (obj.type === 'polygon' && Array.isArray(obj.points)) {
+      const bbox = getBbox(obj);
+      return bbox ? bbox.x : 0;
+    }
+    // Prefer explicit x; for strokes, fall back to first point
     if (Number.isFinite(obj.x)) return obj.x;
     if (obj.points && obj.points.length >= 2) return obj.points[0];
     return 0;
@@ -119,6 +124,11 @@ export default function Properties({
 
   const getY = (obj) => {
     if (!obj) return '';
+    // Polygons: show real top edge (minY of points)
+    if (obj.type === 'polygon' && Array.isArray(obj.points)) {
+      const bbox = getBbox(obj);
+      return bbox ? bbox.y : 0;
+    }
     if (Number.isFinite(obj.y)) return obj.y;
     if (obj.points && obj.points.length >= 2) return obj.points[1];
     return 0;

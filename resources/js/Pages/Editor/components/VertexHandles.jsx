@@ -22,6 +22,7 @@ export default function VertexHandles({ editingPoints, scale, snapToGrid, gridSi
           key={`vertex-${i}`}
           x={editingPoints[i * 2]}
           y={editingPoints[i * 2 + 1]}
+          // Divide by camera scale so handles stay the same screen-pixel size at any zoom
           radius={7 / scale}
           fill="#06b6d4"
           stroke="#ffffff"

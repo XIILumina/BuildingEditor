@@ -1,5 +1,6 @@
 /**
  * num — safely convert a value to a finite number, falling back to `d`.
+ * Used everywhere to guard against undefined/NaN coming from saved project data.
  */
 export const num = (v, d = 0) => {
   const n = Number(v);
@@ -8,6 +9,7 @@ export const num = (v, d = 0) => {
 
 /**
  * pointsToPath — convert a flat points array [x0,y0, x1,y1, ...] to an SVG path string.
+ * Used by Konva <Path> to draw polygons from their absolute point list.
  */
 export function pointsToPath(points) {
   if (!Array.isArray(points) || points.length < 2) return "";

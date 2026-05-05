@@ -12,15 +12,12 @@ class OpenAIController extends Controller
         $client = OpenAI::client(env('OPENAI_API_KEY'));
 
         $prompt = $request->input('prompt');
-        $promptBlocks = str_split($prompt, 500);
 
+        // Send the full prompt as a single user message — splitting serves no purpose
         $messages = [
-            ['role' => 'system', 'content' => 'You are GPT Assistant']
+            ['role' => 'system', 'content' => 'You are GPT Assistant'],
+            ['role' => 'user',   'content' => $prompt],
         ];
-
-        foreach ($promptBlocks as $block) {
-            $messages[] = ['role' => 'user', 'content' => $block];
-        }
 
         try {
             $response = $client->chat()->create([
@@ -53,7 +50,7 @@ class OpenAIController extends Controller
     public function AiDrawSuggestion(Request $request)
     {
         $request->validate([
-            'prompt' => 'required|string|max:1000',
+            'prompt' => 'required|string|max:3000', // raised: complex design prompts need more room
             'projectData' => 'required|json',
             'model' => 'nullable|string'
         ]);
@@ -74,11 +71,11 @@ class OpenAIController extends Controller
         $activeLayerId = (int)($projectData['activeLayerId'] ?? ($projectData['layers'][0]['id'] ?? 1));
 
         $limits = [
-            'max_strokes' => (int) env('AI_MAX_STROKES', 100),
-            'max_shapes' => (int) env('AI_MAX_SHAPES', 120),
+            'max_strokes'           => (int) env('AI_MAX_STROKES',           150),
+            'max_shapes'            => (int) env('AI_MAX_SHAPES',            200),
             'max_points_per_stroke' => (int) env('AI_MAX_POINTS_PER_STROKE', 300),
-            'max_points_per_polygon' => (int) env('AI_MAX_POINTS_PER_POLYGON', 300),
-            'max_total_points' => (int) env('AI_MAX_TOTAL_POINTS', 6000),
+            'max_points_per_polygon'=> (int) env('AI_MAX_POINTS_PER_POLYGON',300),
+            'max_total_points'      => (int) env('AI_MAX_TOTAL_POINTS',     10000),
         ];
 
         $contextPayload = $this->buildPromptContext($projectData, $activeLayerId, $limits);
@@ -115,6 +112,13 @@ HARD LIMITS (RESPECT THESE):
 - Max points per stroke: {$limits['max_points_per_stroke']}
 - Max points per polygon: {$limits['max_points_per_polygon']}
 - Max total points: {$limits['max_total_points']}
+
+TOKEN BUDGET:
+- Before generating, estimate the task complexity: simple (1 room, few elements), medium (2-4 rooms, fixtures), complex (full building, multiple rooms, furniture, fixtures).
+- Simple: aim for 80-120 strokes/shapes total.
+- Medium: aim for 120-200 strokes/shapes total.
+- Complex: use the full limits above. Prefer completeness over brevity for complex requests.
+- Always produce well-formed JSON regardless of size. Do NOT truncate or summarize the JSON.
 
 ALLOWED OBJECTS:
 
@@ -161,7 +165,8 @@ EOD;
         ];
 
         $model = $request->input('model') ?: 'gpt-4o';
-        $maxTokens = 4096;
+        // 16000 tokens ≈ ~12k words — enough for dense coordinate JSON of complex floor plans
+        $maxTokens = 16000;
         $temperature = (float) env('AI_TEMPERATURE', 0.18);
         $topP = 0.9;
 
